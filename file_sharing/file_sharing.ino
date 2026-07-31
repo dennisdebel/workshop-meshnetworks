@@ -1,5 +1,8 @@
+//#include <ESP8266mDNS.h>
+#include "./DNSServer.h" // Dns server, needed for mdns!
 #include "painlessMesh.h"
 
+#include <Arduino.h>
 #include <LittleFS.h>
 
 #ifdef ESP8266
@@ -10,12 +13,18 @@
 
 #include <ESPAsyncWebServer.h>
 
+// -----------------------
+// dns hijjacking 
+// -----------------------
 
+DNSServer dnsServer;
+const byte DNS_PORT = 53;
+  
 // -----------------------
 // painlessMesh settings
 // -----------------------
 
-#define MESH_PREFIX     "myssid1" // the wifi ssid needs to be the same for each node
+#define MESH_PREFIX     "mesh" // the wifi ssid needs to be the same for each node
 #define MESH_PASSWORD   "12345678"
 #define MESH_PORT       5555
  
@@ -37,7 +46,6 @@ painlessMesh mesh;
 AsyncWebServer server(80);
 
 Scheduler userScheduler;
-
 
 
 // -----------------------
@@ -486,9 +494,11 @@ void setup()
       &userScheduler,
       MESH_PORT
   );
+  
 
   
   Serial.println("Mesh started");
+
   
   Serial.print("AP SSID: ");
   Serial.println(MESH_PREFIX);
@@ -496,6 +506,13 @@ void setup()
   Serial.print("AP IP: ");
   Serial.println(WiFi.softAPIP());
 
+
+  Serial.print("INTERNAL AP: ");
+  Serial.println(WiFi.softAPSSID());
+
+  
+
+ 
   mesh.onReceive(
     &receivedCallback
   );
@@ -644,12 +661,24 @@ void setup()
   Serial.println("HTTP server started");
 
 
-  Serial.print("AP IP: ");
-  Serial.println(
-    WiFi.softAPIP()
-  );
 
-}
+  // Set a custom hostname for the device
+//  bool success = mesh.setHostname("mesh");
+//    if (success) {
+//      Serial.println("Hostname set successfully.");
+//    } else {
+//      Serial.println("Failed to set hostname.");
+//    }
+//  
+
+  delay(1000); // maybe not needed
+
+ dnsServer.start(DNS_PORT, "*", WiFi.softAPIP()); // redirect dns request to AP ip
+
+ 
+
+
+} // end of setup()
 
 
 
@@ -659,8 +688,10 @@ void setup()
 
 void loop()
 {
-    mesh.update();
-    //userScheduler.execute();
+  mesh.update();
+  dnsServer.processNextRequest();
+
+  //userScheduler.execute();
 
 //  static uint32_t lastRequest = 0;
 //  
