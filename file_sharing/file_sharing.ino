@@ -37,7 +37,9 @@ const byte DNS_PORT = 53;
 // Incoming file
 // -----------------------
 
-bool receivingFile=false; //transfer lock
+bool receivingFile=false; //transfer locks
+String requestedFile="";  //transfer locks
+uint32_t requestedFrom=0; //transfer locks
 
 struct IncomingFile
 {
@@ -101,7 +103,7 @@ void sendFileChunk();
 
 
 Task fileTask(
-    300, //slowwwwwww
+    300, //slowwwwwww ..or fast..thats the question...
     TASK_FOREVER,
     []()
     {
@@ -232,6 +234,61 @@ int base64Decode(
 }
 
 
+// -----------------------
+// File Queue
+// ----------------------- 
+void startNextFile()
+{
+    if(sendingFile)
+        return;
+
+    if(sendQueue.empty())
+        return;
+
+
+    FileRequest req = sendQueue.front();
+
+    sendQueue.erase(sendQueue.begin());
+
+
+    outgoingFile = LittleFS.open(
+        req.filename,
+        "r"
+    );
+
+
+    if(!outgoingFile)
+    {
+        Serial.println("Queued file missing");
+        return;
+    }
+
+
+    outgoingNode = req.node;
+    outgoingFilename = req.filename;
+    outgoingPos = 0;
+
+
+    String start;
+
+    start = "FILE_START:";
+    start += outgoingFilename;
+    start += ":";
+    start += outgoingFile.size();
+
+
+    mesh.sendSingle(
+        outgoingNode,
+        start
+    );
+
+
+    sendingFile=true;
+
+
+    Serial.print("Starting queued transfer: ");
+    Serial.println(outgoingFilename);
+}
 
 
 // -----------------------
@@ -283,11 +340,11 @@ void sendFileChunk()
         outgoingFilename = "";
 
         sendingFile = false;
-
-
+        
         Serial.println("file sent");
-
-
+        
+        startNextFile();
+        
         return;
     }
 
@@ -410,54 +467,51 @@ void receivedCallback(uint32_t from, String &msg)
     // FILE ANNOUNCEMENT
     // -----------------------
 
-    if(msg.startsWith("FILE:"))
+if(msg.startsWith("FILE:"))
+{
+
+    int p1 = msg.indexOf(':',5);
+
+    String filename =
+        msg.substring(5,p1);
+
+    size_t filesize =
+        msg.substring(p1+1).toInt();
+
+
+    Serial.print("Remote file: ");
+    Serial.print(filename);
+    Serial.print(" ");
+    Serial.println(filesize);
+
+
+
+    if(!hasFile(filename) && requestedFile != filename)
     {
 
-        int p1 = msg.indexOf(':',5);
+        requestedFile = filename;
+        requestedFrom = from;
 
+        String request;
+        request.reserve(80);
 
-        String filename =
-            msg.substring(5,p1);
+        request = "GET_FILE:";
+        request += filename;
 
+        mesh.sendSingle(
+            from,
+            request
+        );
 
-
-        size_t filesize =
-            msg.substring(p1+1).toInt();
-
-
-
-        Serial.print("Remote file: ");
-        Serial.print(filename);
-        Serial.print(" ");
-        Serial.println(filesize);
-
-
-
-        if(!hasFile(filename) && !receivingFile)
-        {
-
-            String request;
-            request.reserve(80);
-
-
-            request = "GET_FILE:";
-            request += filename;
-
-
-            mesh.sendSingle(
-                from,
-                request
-            );
-
-        }
-        else
-        {
-            Serial.println("Already have it");
-        }
-
-
-        return;
     }
+    else
+    {
+        Serial.println("Already requested");
+    }
+
+
+    return;
+}
 
 
 
@@ -473,13 +527,41 @@ void receivedCallback(uint32_t from, String &msg)
 
         String filename =
             msg.substring(9);
+            
+        if(sendingFile)
+        {
+            Serial.println("Queueing transfer");
+        
+            FileRequest req;
+        
+            req.node = from;
+            req.filename = filename;
+        
+            sendQueue.push_back(req);
 
-
-      if(sendingFile)
-      {
-          Serial.println("Already sending");
-          return;
-      }
+            bool alreadyQueued=false;
+            
+            for(auto &q : sendQueue)
+            {
+                if(q.node == from &&
+                   q.filename == filename)
+                {
+                    alreadyQueued=true;
+                    break;
+                }
+            }
+            
+            if(!alreadyQueued)
+            {
+                FileRequest req;
+                req.node = from;
+                req.filename = filename;
+            
+                sendQueue.push_back(req);
+            }
+        
+            return;
+        }
 
         outgoingFile =
             LittleFS.open(
@@ -558,6 +640,13 @@ void receivedCallback(uint32_t from, String &msg)
 
 
         incoming.received = 0;
+        
+        if(incoming.name != requestedFile)
+        {
+            Serial.println("Unexpected file");
+            return;
+        }
+        
         receivingFile=true;
 
 
@@ -701,7 +790,9 @@ void receivedCallback(uint32_t from, String &msg)
         Serial.println("Finished:");
         Serial.println(incoming.name);
 
-        receivingFile=false;
+        receivingFile=false; // transfer locks
+        requestedFile="";
+        requestedFrom=0;
         String announce;
 
         announce.reserve(80);
@@ -724,9 +815,6 @@ void receivedCallback(uint32_t from, String &msg)
         return;
        
     }
-
-
-
 
 
 
