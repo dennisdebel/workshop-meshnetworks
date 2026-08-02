@@ -1017,6 +1017,15 @@ void setup()
 
   while(dir.next())
   {
+    String name = dir.fileName(); // remove temp files
+    if(name.endsWith(".tmp"))
+    {
+        Serial.print("Removing incomplete file: ");
+        Serial.println(name);
+
+        LittleFS.remove(name);
+    }
+    
     Serial.print("FILE: ");
     Serial.print(dir.fileName());
     Serial.print(" SIZE: ");
@@ -1100,7 +1109,7 @@ fileTask.enable();
 
     String html;
 
-    html += "<html><body>";
+    html += "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body>";
     html += "<h1>Mesh File Sharing</h1>";
     
 
