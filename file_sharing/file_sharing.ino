@@ -1201,7 +1201,7 @@ fileTask.enable();
     // Identity
     // -----------------------
     
-    html += "<pre>";
+    html += "<pre id='identity'>";
     
     html += "+------------[ identity ]------------+\n";
     
@@ -1254,7 +1254,7 @@ fileTask.enable();
     // Files
     // -----------------------
 
-    html += "<pre>";
+    html += "<pre id='files'>";
 
     html += "+------------------------------------+\n";
     html += boxLine("[ files ]", 38);
@@ -1416,6 +1416,21 @@ fileTask.enable();
     // -----------------------
 
     html += "<script>";
+
+    html += "function updateIdentity(){";
+    html += "fetch('/identity')";
+    html += ".then(r=>r.text())";
+    html += ".then(t=>{";
+    html += "document.getElementById('identity').textContent=t;";
+    html += "});";
+    html += "}";
+    
+    html += "setInterval(updateIdentity,3000);";
+    html += "updateIdentity();";
+    
+    html += "</script>";
+
+    html += "<script>";
     html += "function updateStatus(){";
     html += "fetch('/status')"; 
     html += ".then(r=>r.text())";
@@ -1428,6 +1443,20 @@ fileTask.enable();
     html += "updateStatus();";
     html += "</script>";
 
+    html += "<script>";
+
+    html += "function updateFiles(){";
+    html += "fetch('/files')";
+    html += ".then(r=>r.text())";
+    html += ".then(t=>{";
+    html += "document.getElementById('files').textContent=t;";
+    html += "});";
+    html += "}";
+    
+    html += "setInterval(updateFiles,4000);";
+    html += "updateFiles();";
+    
+    html += "</script>";
 
     html += "<script>";
 
@@ -1517,7 +1546,66 @@ fileTask.enable();
     handleUpload
   );
 
+   // Peer list 
+   server.on("/identity", HTTP_GET,
+    [](AsyncWebServerRequest *request)
+    {
+    
+        String out;
+    
+    
+        out += "+------------[ identity ]------------+\n";
+    
+    
+        String nodeLine;
+        nodeLine = "node id: ";
+        nodeLine += mesh.getNodeId();
+    
+        out += boxLine(
+            nodeLine,
+            38
+        );
+    
+        out += "\n";
+    
+    
+        String heapLine;
+        heapLine = "heap: ";
+        heapLine += ESP.getFreeHeap();
+        heapLine += " bytes";
+    
+        out += boxLine(
+            heapLine,
+            38
+        );
+    
+        out += "\n";
+    
+    
+        String peerLine;
+        peerLine = "peers: ";
+        peerLine += mesh.getNodeList().size();
+    
+        out += boxLine(
+            peerLine,
+            38
+        );
+    
+        out += "\n";
+    
+    
+        out += "+------------------------------------+";
+    
+    
+        request->send(
+            200,
+            "text/plain",
+            out
+        );
+    
+    });
 
+   
    // Status page
   server.on("/status", HTTP_GET,
   [](AsyncWebServerRequest *request)
@@ -1618,6 +1706,51 @@ fileTask.enable();
 
   });
 
+
+    // Update file list on web interface on download
+    server.on("/files", HTTP_GET,
+    [](AsyncWebServerRequest *request)
+    {
+    
+        String out;
+    
+        out += "+------------------------------------+\n";
+        out += boxLine("[ files ]",38);
+        out += "\n";
+    
+        Dir dir = LittleFS.openDir("/");
+    
+        while(dir.next())
+        {
+            String name = dir.fileName();
+    
+            if(name.endsWith(".tmp"))
+                continue;
+    
+    
+            String entry;
+    
+            entry = name;
+            entry += " [download]";
+    
+    
+            out += boxLine(entry,38);
+            out += "\n";
+        }
+    
+    
+        out += "+------------------------------------+";
+    
+    
+        request->send(
+            200,
+            "text/plain",
+            out
+        );
+    
+    });
+
+  
   server.begin();
 
   Serial.println("HTTP server started");
