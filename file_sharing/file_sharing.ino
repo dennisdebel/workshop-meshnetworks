@@ -144,6 +144,59 @@ size_t getFreeSpace()
     return fs_info.totalBytes - fs_info.usedBytes;
 }
 
+// HTML line builder
+String boxLine(String content, int width)
+{
+    String line = "| ";
+
+    line += content;
+
+    while(line.length() < width - 1)
+    {
+        line += " ";
+    }
+
+    line += "|";
+
+    return line;
+}
+
+// HTML aware line builder
+String boxLineHTML(String content, int visibleLength, int width)
+{
+    String line = "| ";
+    
+    line += content;
+
+    int spaces = width - visibleLength - 3;
+
+    for(int i=0;i<spaces;i++)
+        line += " ";
+
+    line += "|";
+
+    return line;
+}
+
+// HTML progress bar 
+String progressBar(int percent, int width)
+{
+    String bar = "[";
+
+    int filled = (percent * width) / 100;
+
+    for(int i=0;i<width;i++)
+    {
+        if(i < filled)
+            bar += "#";
+        else
+            bar += "-";
+    }
+
+    bar += "]";
+
+    return bar;
+}
 // -----------------------
 // Base64
 // -----------------------
@@ -841,72 +894,6 @@ if(msg.startsWith("FILE_END:"))
     return;
 }
 
-//    if(msg.startsWith("FILE_END:"))
-//    {
-//
-//        if(incoming.file)
-//        {
-//            incoming.file.close();
-//
-//            if(LittleFS.exists(incoming.name))
-//            {
-//                LittleFS.remove(incoming.name);
-//            }
-//
-//            String tempName;
-//
-//            tempName.reserve(80);
-//
-//            tempName = incoming.name;
-//            
-//            if(!tempName.endsWith(".tmp"))
-//            {
-//                tempName += ".tmp";
-//            }
-//
-//            LittleFS.rename(
-//                tempName,
-//                incoming.name
-//            );
-//        }
-//
-//        Serial.println("Finished:");
-//        Serial.println(incoming.name);
-//
-//        receivingFile=false; // transfer locks
-//        requestedFile="";
-//        requestedFrom=0;
-//        String announce;
-//
-//        announce.reserve(80);
-//
-////        if(!incoming.name.endsWith(".tmp"))
-////        {
-////            announce = "NEW_FILE:";
-////            announce += incoming.name;
-////        
-////            mesh.sendBroadcast(
-////                announce
-////            );
-////        }
-//
-//          Serial.println("Finished:");
-//          Serial.println(incoming.name);
-//          
-//          receivingFile=false;
-//          
-//          return;
-//
-////        mesh.sendBroadcast(
-////            announce
-////        );
-//
-//
-//        //return;
-//       
-//    }
-
-
 
 
     // -----------------------
@@ -1103,112 +1090,370 @@ fileTask.enable();
   // Web root
   // -----------------------
 
+  int boxWidth = 36;
+  String border = "+----------------------------------+";
+  
   server.on("/", HTTP_GET,
   [](AsyncWebServerRequest *request)
   {
 
     String html;
 
-    html += "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'></head><body>";
-    html += "<h1>Mesh File Sharing</h1>";
+
+    html += "<html><head>";
+    html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+    html += "<style>";
+    html += "body {";
+    html += "background:#000;";
+    html += "color:#fff;";
+    html += "font-family: monospace;";
+    html += "font-size:16px;";
+    html += "margin:0;";
+    html += "padding:10px;";
+    html += "}";
+  
+    html += "pre {";
+    html += "font-family: monospace;";
+    html += "white-space: pre;";
+    html += "overflow-x:auto;";
+    html += "}";
     
-
-    Dir dir = LittleFS.openDir("/");
-
-
-    while(dir.next())
-    {
-      String name = dir.fileName();
-
-      html += "<p>";
-      html += name;
-      html += " (";
-      html += dir.fileSize();
-      html += " bytes) ";
-
-      html += "<a href='/download?file=";
-      html += name;
-      html += "'>download</a>";
-
-      html += "</p>";
-    }
-
-
-    html += "<hr>";
-
-    html += "<h2>Upload (< 100 kb!)</h2>";
-
-    html += "<form method='POST' action='/upload' "
-            "enctype='multipart/form-data'>";
-
-    html += "<input type='file' id='file' name='upload'>";
-
-    html += "<input type='submit'>";
-
-    html += "</form>";
-
-    // Storage info 
+    html += "input[type=file] {";
+    html += "color:white;";
+    html += "font-family:monospace;";
+    html += "}";
     
+    html += ".asciiButton {";
+    html += "background:black;";
+    html += "color:white;";
+    html += "border:0;";
+    html += "font-family:monospace;";
+    html += "font-size:16px;";
+    html += "cursor:pointer;";
+    html += "padding:0;";
+    html += "}";
+
+    html += "a {";
+    html += "color:white;";
+    html += "}";
+    
+    html += ".box {";
+    html += "font-family:monospace;";
+    html += "white-space:pre;";
+    html += "width:38ch;";
+    html += "overflow:hidden;";
+    html += "}";
+
+    html += "</style>";
+    html += "</head><body>";
+
+    // -----------------------
+    // Calculate storage
+    // -----------------------
+
     FSInfo fs_info;
     LittleFS.info(fs_info);
-    
-    float usedMB = fs_info.usedBytes / 1024.0 / 1024.0;
-    float totalMB = fs_info.totalBytes / 1024.0 / 1024.0;
-    float freeMB = (fs_info.totalBytes - fs_info.usedBytes) / 1024.0 / 1024.0;
-    
-    int percent = 
-        (fs_info.usedBytes * 100) / fs_info.totalBytes;
-    
-    
-    // ASCII progress bar
-    int barWidth = 20;
-    int filled = (percent * barWidth) / 100;
-    
-    String bar = "[";
-    
-    for(int i = 0; i < barWidth; i++)
+
+    float usedMB =
+        fs_info.usedBytes / 1024.0 / 1024.0;
+
+    float totalMB =
+        fs_info.totalBytes / 1024.0 / 1024.0;
+
+    float freeMB =
+        (fs_info.totalBytes - fs_info.usedBytes)
+        /1024.0/1024.0;
+
+    int percent =
+        (fs_info.usedBytes * 100)
+        / fs_info.totalBytes;
+
+    int barWidth = 25;
+
+    int filled =
+        (percent * barWidth) / 100;
+
+    String bar="[ ";
+
+    for(int i=0;i<barWidth;i++)
     {
         if(i < filled)
             bar += "#";
         else
             bar += "-";
     }
-    
-    bar += "]";
-    
-    
+    bar += " ]";
+
+    // -----------------------
+    // Header / identity
+    // -----------------------
+
     html += "<pre>";
 
-    html += "Node ID: ";
-    html += mesh.getNodeId();
-    html += "\n\n";
 
-    html += "Storage\n";
-    html += bar;
-    html += " ";
-    html += percent;
-    html += "%\n\n";
+    html += "+------------[ MESH NODE ]-----------+\n";
+
+    html += "\n";
     
-    html += "Used: ";
-    html += String(usedMB,2);
-    html += " MB / ";
-    html += String(totalMB,2);
-    html += " MB\n";
+    html += "</pre>";
     
-    html += "Free: ";
-    html += String(freeMB,2);
-    html += " MB";
+    // -----------------------
+    // Identity
+    // -----------------------
+    
+    html += "<pre>";
+    
+    html += "+------------[ identity ]------------+\n";
+    
+    
+    String nodeLine;
+    nodeLine = "node id: ";
+    nodeLine += mesh.getNodeId();
+    
+    html += boxLineHTML(
+        nodeLine,
+        nodeLine.length(),
+        38
+    );
+    html += "\n";
+    
+    
+    String heapLine;
+    heapLine = "heap: ";
+    heapLine += ESP.getFreeHeap();
+    heapLine += " bytes";
+    
+    html += boxLineHTML(
+        heapLine,
+        heapLine.length(),
+        38
+    );
+    html += "\n";
+    
+    
+    String peerLine;
+    peerLine = "peers: ";
+    peerLine += mesh.getNodeList().size();
+    
+    html += boxLineHTML(
+        peerLine,
+        peerLine.length(),
+        38
+    );
+    html += "\n";
+    
+    
+    html += "+------------------------------------+\n";
+    
+    html += "</pre>";
+    
+    html += "\n";
+
+
+    // -----------------------
+    // Files
+    // -----------------------
+
+    html += "<pre>";
+
+    html += "+------------------------------------+\n";
+    html += boxLine("[ files ]", 38);
+    html += "\n";
+    
+    html += boxLine("", 38); // Give some space to the title
+    html += "\n";
+    
+    
+    Dir dir = LittleFS.openDir("/");
+    
+    while(dir.next())
+    {
+        String name = dir.fileName();
+    
+        if(name.endsWith(".tmp"))
+            continue;
+    
+    
+        String fileEntry;
+
+        fileEntry = name;
+        
+        fileEntry += " <a href='/download?file=";
+        fileEntry += name;
+        fileEntry += "'>[download]</a>";
+        
+        
+        int visibleLength = name.length() + 11; 
+        // " " + "[download]" = 11 visible chars
+        
+        
+        html += boxLineHTML(fileEntry, visibleLength, 38);
+        html += "\n";
+    }
+    
+    
+    html += "+------------------------------------+\n";
     
     html += "</pre>";
 
-    html += "<script>";
+
+
+
+    // -----------------------
+    // Disk
+    // -----------------------
     
-    html += "var uploadField = document.getElementById('file');";
-    html += "uploadField.onchange = function() { if(this.files[0].size >";
-    html += MAX_UPLOAD_SIZE;
-    html += ") {";
-    html += "alert('File is too big!');this.value = '';};};";
+    html += "<pre>";
+    
+    html += "+------------------------------------+\n";
+    
+    html += boxLine("[ disk space ]",38);
+    html += "\n";
+    
+    html += boxLine("",38);
+    html += "\n";
+    
+    
+    html += boxLine(bar + " " + String(percent) + "%",38);
+    html += "\n";
+    
+    
+    String usedLine;
+    
+    usedLine = "used: ";
+    usedLine += String(usedMB,2);
+    usedLine += " MB / ";
+    usedLine += String(totalMB,2);
+    usedLine += " MB";
+    
+    html += boxLine(usedLine,38);
+    html += "\n";
+    
+    
+    String freeLine;
+    
+    freeLine = "free: ";
+    freeLine += String(freeMB,2);
+    freeLine += " MB";
+    
+    html += boxLine(freeLine,38);
+    html += "\n";
+    
+    
+    html += "+------------------------------------+\n";
+    
+    html += "</pre>";
+
+    
+    // -----------------------
+    // Upload
+    // -----------------------
+    
+    html += "<form method='POST' action='/upload' enctype='multipart/form-data'>";
+    
+    html += "<pre>";
+    
+    html += "+------------------------------------+\n";
+    
+    html += boxLineHTML("[ upload ]", 10, 38);
+    html += "\n";
+
+        
+    html += boxLine("", 38); //added
+    html += "\n";
+
+    
+    
+    html += boxLineHTML(
+        "<input type='file' id='file' name='upload' style='display:none;'>"
+        "<label for='file' class='asciiButton'>[ choose file ]</label>",
+        15,   // visible chars: "[ choose file ]"
+        38
+    );
+    html += "\n";
+    
+    
+    html += boxLineHTML(
+        "file: <span id='filename'>none</span>",
+        10,   // "file: " + "none"
+        38
+    );
+    html += "\n";
+    
+    
+    html += boxLineHTML(
+        "<button class='asciiButton' type='submit'>[ upload ]</button>",
+        10,   // "[ upload ]"
+        38
+    );
+    html += "\n";
+    
+    
+    html += "+------------------------------------+\n";
+    
+    html += "</pre>";
+    
+    html += "</form>";
+
+    // -----------------------
+    // Transfer status
+    // -----------------------
+    
+    html += "</pre>";
+
+    html += "<pre id='transfer'>";
+    
+    html += "+------------------------------------+\n";
+    html += "| [ transfer status ]                |\n";
+    html += "|                                    |\n";
+    html += "| loading...                        |\n";
+    html += "+------------------------------------+\n";
+    
+    html += "</pre>";
+
+    // -----------------------
+    // Javascript
+    // -----------------------
+
+    html += "<script>";
+    html += "function updateStatus(){";
+    html += "fetch('/status')"; 
+    html += ".then(r=>r.text())";
+    html += ".then(t=>{";
+    html += "document.getElementById('transfer').textContent=t;";
+    html += "});";
+    html += "}";
+    
+    html += "setInterval(updateStatus,2000);";
+    html += "updateStatus();";
     html += "</script>";
+
+
+    html += "<script>";
+
+    html += "var f=document.getElementById('file');";
+
+    html += "f.onchange=function(){";
+
+    html += "document.getElementById('filename').innerHTML=this.files[0].name;";
+
+
+    html += "if(this.files[0].size > 100000){";
+
+    html += "alert('File too big!');";
+
+    html += "this.value='';";
+
+    html += "}";
+
+
+    html += "};";
+
+
+    html += "</script>";
+
+
+
     html += "</body></html>";
 
     request->send(
@@ -1273,6 +1518,105 @@ fileTask.enable();
   );
 
 
+   // Status page
+  server.on("/status", HTTP_GET,
+  [](AsyncWebServerRequest *request)
+  {
+
+    String out;
+
+
+    out += "+------------------------------------+\n";
+
+
+    out += boxLine("[ transfer status ]", 38);
+    out += "\n";
+
+
+    if(sendingFile)
+    {
+
+        String line;
+
+        line = "TX: ";
+        line += outgoingFilename;
+
+        out += boxLine(line, 38);
+        out += "\n";
+
+
+        int percent = 0;
+
+        if(outgoingFile.size() > 0)
+        {
+            percent =
+            (outgoingPos * 100)
+            / outgoingFile.size();
+        }
+
+
+        line = progressBar(percent,25);
+        line += " ";
+        line += percent;
+        line += "%";
+
+
+        out += boxLine(line,38);
+        out += "\n";
+
+    }
+    else if(receivingFile)
+    {
+
+        String line;
+
+        line = "RX: ";
+        line += incoming.name;
+
+
+        out += boxLine(line,38);
+        out += "\n";
+
+
+        int percent=0;
+
+        if(incoming.size > 0)
+        {
+            percent =
+            (incoming.received * 100)
+            / incoming.size;
+        }
+
+
+        line = progressBar(percent,25);
+        line += " ";
+        line += percent;
+        line += "%";
+
+
+        out += boxLine(line,38);
+        out += "\n";
+
+    }
+    else
+    {
+
+        out += boxLine("idle",38);
+        out += "\n";
+
+    }
+
+
+    out += "+------------------------------------+";
+
+
+    request->send(
+        200,
+        "text/plain",
+        out
+    );
+
+  });
 
   server.begin();
 
