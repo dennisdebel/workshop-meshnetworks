@@ -38,9 +38,11 @@ const byte DNS_PORT = 53;
 // Incoming file
 // -----------------------
 
-bool receivingFile=false; //transfer locks
-String requestedFile="";  //transfer locks
-uint32_t requestedFrom=0; //transfer locks
+unsigned long lastSyncRequest = 0; // Sync cool down
+
+bool receivingFile=false; // Transfer locks
+String requestedFile="";  // Transfer locks
+uint32_t requestedFrom=0; // Transfer locks
 
 struct IncomingFile
 {
@@ -66,6 +68,16 @@ IncomingFile incoming;
   
   std::vector<FileRequest> sendQueue;
 
+  bool alreadyQueued(uint32_t node, String filename)
+  {
+      for(auto &req : sendQueue)
+      {
+          if(req.node == node && req.filename == filename)
+              return true;
+      }
+  
+      return false;
+  }
 // -----------------------
 // Globals
 // -----------------------
@@ -415,15 +427,19 @@ void receivedCallback(uint32_t from, String &msg)
     Serial.print(from);
     Serial.print(": ");
     
-    if(msg.length()>50)
-    {
-        Serial.println(msg.substring(0,50));
-    }
-    else
-    {
-        Serial.println(msg);
-    }
+//    if(msg.length()>50) // clogs up serial monitor
+//    {
+//        Serial.println(msg.substring(0,50));
+//    }
+//    else
+//    {
+//        Serial.println(msg);
+//    }
 
+      if(!msg.startsWith("FILE_CHUNK:"))
+      {
+          Serial.println(msg);
+      }
 
     // -----------------------
     // FILE LIST REQUEST
@@ -544,9 +560,19 @@ if(msg.startsWith("FILE:"))
             req.node = from;
             req.filename = filename;
         
-            sendQueue.push_back(req);
+            if(!alreadyQueued(from, filename))
+            {
+                sendQueue.push_back({from, filename});
+                Serial.println("Queued");
+            }
+            else
+            {
+                Serial.println("Already queued");
+            }
 
             bool alreadyQueued=false;
+
+            
             
             for(auto &q : sendQueue)
             {
@@ -648,11 +674,11 @@ if(msg.startsWith("FILE:"))
 
         incoming.received = 0;
         
-        if(incoming.name != requestedFile)
-        {
-            Serial.println("Unexpected file");
-            return;
-        }
+//        if(incoming.name != requestedFile)
+//        {
+//            Serial.println("Unexpected file");
+//            return;
+//        }
         
         receivingFile=true;
 
@@ -770,63 +796,115 @@ if(msg.startsWith("FILE:"))
     // FILE END
     // -----------------------
 
-    if(msg.startsWith("FILE_END:"))
+if(msg.startsWith("FILE_END:"))
+{
+
+    if(incoming.file)
     {
+        incoming.file.close();
 
-        if(incoming.file)
+        if(LittleFS.exists(incoming.name))
         {
-            incoming.file.close();
-
-            if(LittleFS.exists(incoming.name))
-            {
-                LittleFS.remove(incoming.name);
-            }
-
-            String tempName;
-
-            tempName.reserve(80);
-
-            tempName = incoming.name;
-            
-            if(!tempName.endsWith(".tmp"))
-            {
-                tempName += ".tmp";
-            }
-
-            LittleFS.rename(
-                tempName,
-                incoming.name
-            );
+            LittleFS.remove(incoming.name);
         }
 
-        Serial.println("Finished:");
-        Serial.println(incoming.name);
+        String tempName;
 
-        receivingFile=false; // transfer locks
-        requestedFile="";
-        requestedFrom=0;
-        String announce;
+        tempName.reserve(80);
 
-        announce.reserve(80);
+        tempName = incoming.name;
 
-        if(!incoming.name.endsWith(".tmp"))
+        if(!tempName.endsWith(".tmp"))
         {
-            announce = "NEW_FILE:";
-            announce += incoming.name;
-        
-            mesh.sendBroadcast(
-                announce
-            );
+            tempName += ".tmp";
         }
 
-//        mesh.sendBroadcast(
-//            announce
-//        );
-
-
-        return;
-       
+        LittleFS.rename(
+            tempName,
+            incoming.name
+        );
     }
+
+
+    Serial.println("Finished:");
+    Serial.println(incoming.name);
+
+
+    // release transfer lock
+    receivingFile = false;
+
+    // release request ownership
+    requestedFile = "";
+    requestedFrom = 0;
+
+
+    return;
+}
+
+//    if(msg.startsWith("FILE_END:"))
+//    {
+//
+//        if(incoming.file)
+//        {
+//            incoming.file.close();
+//
+//            if(LittleFS.exists(incoming.name))
+//            {
+//                LittleFS.remove(incoming.name);
+//            }
+//
+//            String tempName;
+//
+//            tempName.reserve(80);
+//
+//            tempName = incoming.name;
+//            
+//            if(!tempName.endsWith(".tmp"))
+//            {
+//                tempName += ".tmp";
+//            }
+//
+//            LittleFS.rename(
+//                tempName,
+//                incoming.name
+//            );
+//        }
+//
+//        Serial.println("Finished:");
+//        Serial.println(incoming.name);
+//
+//        receivingFile=false; // transfer locks
+//        requestedFile="";
+//        requestedFrom=0;
+//        String announce;
+//
+//        announce.reserve(80);
+//
+////        if(!incoming.name.endsWith(".tmp"))
+////        {
+////            announce = "NEW_FILE:";
+////            announce += incoming.name;
+////        
+////            mesh.sendBroadcast(
+////                announce
+////            );
+////        }
+//
+//          Serial.println("Finished:");
+//          Serial.println(incoming.name);
+//          
+//          receivingFile=false;
+//          
+//          return;
+//
+////        mesh.sendBroadcast(
+////            announce
+////        );
+//
+//
+//        //return;
+//       
+//    }
 
 
 
@@ -846,11 +924,15 @@ if(msg.startsWith("FILE:"))
         Serial.println("New file announced:");
         Serial.println(filename);
 
-
-
-        mesh.sendBroadcast(
-            "FILE_LIST"
-        );
+        
+        if(millis() - lastSyncRequest > 10000) // Sync cool down period
+        {
+            lastSyncRequest = millis();
+        
+            mesh.sendBroadcast(
+                "FILE_LIST"
+            );
+        }
 
 
 
