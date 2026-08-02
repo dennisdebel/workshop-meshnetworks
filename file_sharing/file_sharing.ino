@@ -1449,7 +1449,7 @@ fileTask.enable();
     html += "fetch('/files')";
     html += ".then(r=>r.text())";
     html += ".then(t=>{";
-    html += "document.getElementById('files').textContent=t;";
+    html += "document.getElementById('files').innerHTML=t;";
     html += "});";
     html += "}";
     
@@ -1723,31 +1723,43 @@ fileTask.enable();
         while(dir.next())
         {
             String name = dir.fileName();
-    
+        
             if(name.endsWith(".tmp"))
                 continue;
-    
-    
+        
+        
             String entry;
-    
+        
             entry = name;
-            entry += " [download]";
-    
-    
-            out += boxLine(entry,38);
+        
+            entry += " <a href='/download?file=";
+            entry += name;
+            entry += "'>[download]</a>";
+        
+        
+            int visibleLength = name.length() + 11;
+            // space + [download]
+        
+        
+            out += boxLineHTML(
+                entry,
+                visibleLength,
+                38
+            );
+        
             out += "\n";
         }
     
     
         out += "+------------------------------------+";
     
-    
+            
         request->send(
             200,
-            "text/plain",
+            "text/html",
             out
         );
-    
+
     });
 
   
