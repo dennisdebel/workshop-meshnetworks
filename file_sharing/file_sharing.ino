@@ -31,6 +31,7 @@ const byte DNS_PORT = 53;
 
 #define CHUNK_SIZE 128
 
+#define MAX_UPLOAD_SIZE 100000 //(100Kb)
 
 
 // -----------------------
@@ -57,13 +58,13 @@ IncomingFile incoming;
 // -----------------------
 
 
-struct FileRequest
-{
-    uint32_t node;
-    String filename;
-};
-
-std::vector<FileRequest> sendQueue;
+  struct FileRequest
+  {
+      uint32_t node;
+      String filename;
+  };
+  
+  std::vector<FileRequest> sendQueue;
 
 // -----------------------
 // Globals
@@ -123,7 +124,13 @@ bool hasFile(String name)
     return LittleFS.exists(name);
 }
 
+size_t getFreeSpace()
+{
+    FSInfo fs_info;
+    LittleFS.info(fs_info);
 
+    return fs_info.totalBytes - fs_info.usedBytes;
+}
 
 // -----------------------
 // Base64
@@ -663,7 +670,12 @@ if(msg.startsWith("FILE:"))
         }
 
 
-
+        if(getFreeSpace() < incoming.size) // prevent full nodes to accept transfers!
+        {
+            Serial.println("Not enough storage!");
+            return;
+        }
+        
         incoming.file =
             LittleFS.open(
                 tempName,
@@ -861,6 +873,12 @@ void handleUpload(
 )
 {
 
+  if(index + len > MAX_UPLOAD_SIZE)
+  {
+      Serial.println("Upload too large");
+      request->send(413, "text/plain", "File too large");
+      return;
+  }
   static File uploadFile;
 
   if(index == 0)
@@ -1002,7 +1020,7 @@ fileTask.enable();
 
     html += "<html><body>";
     html += "<h1>Mesh File Sharing</h1>";
-
+    
 
     Dir dir = LittleFS.openDir("/");
 
@@ -1032,13 +1050,74 @@ fileTask.enable();
     html += "<form method='POST' action='/upload' "
             "enctype='multipart/form-data'>";
 
-    html += "<input type='file' name='upload'>";
+    html += "<input type='file' id='file' name='upload'>";
 
     html += "<input type='submit'>";
 
     html += "</form>";
 
+    // Storage info 
+    
+    FSInfo fs_info;
+    LittleFS.info(fs_info);
+    
+    float usedMB = fs_info.usedBytes / 1024.0 / 1024.0;
+    float totalMB = fs_info.totalBytes / 1024.0 / 1024.0;
+    float freeMB = (fs_info.totalBytes - fs_info.usedBytes) / 1024.0 / 1024.0;
+    
+    int percent = 
+        (fs_info.usedBytes * 100) / fs_info.totalBytes;
+    
+    
+    // ASCII progress bar
+    int barWidth = 20;
+    int filled = (percent * barWidth) / 100;
+    
+    String bar = "[";
+    
+    for(int i = 0; i < barWidth; i++)
+    {
+        if(i < filled)
+            bar += "#";
+        else
+            bar += "-";
+    }
+    
+    bar += "]";
+    
+    
+    html += "<pre>";
 
+    html += "Node ID: ";
+    html += mesh.getNodeId();
+    html += "\n\n";
+
+    html += "Storage\n";
+    html += bar;
+    html += " ";
+    html += percent;
+    html += "%\n\n";
+    
+    html += "Used: ";
+    html += String(usedMB,2);
+    html += " MB / ";
+    html += String(totalMB,2);
+    html += " MB\n";
+    
+    html += "Free: ";
+    html += String(freeMB,2);
+    html += " MB";
+    
+    html += "</pre>";
+
+    html += "<script>";
+    
+    html += "var uploadField = document.getElementById('file');";
+    html += "uploadField.onchange = function() { if(this.files[0].size >";
+    html += MAX_UPLOAD_SIZE;
+    html += ") {";
+    html += "alert('File is too big!');this.value = '';};};";
+    html += "</script>";
     html += "</body></html>";
 
     request->send(
