@@ -20,10 +20,15 @@
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
 
+// -----------------------
+// Globals
+// -----------------------
 
-// -----------------------
-// painlessMesh settings
-// -----------------------
+painlessMesh mesh;
+
+AsyncWebServer server(80);
+
+Scheduler userScheduler;
 
 #define MESH_PREFIX     "mesh"
 #define MESH_PASSWORD   "12345678"
@@ -78,15 +83,6 @@ IncomingFile incoming;
   
       return false;
   }
-// -----------------------
-// Globals
-// -----------------------
-
-painlessMesh mesh;
-
-AsyncWebServer server(80);
-
-Scheduler userScheduler;
 
  
 // -----------------------
@@ -106,7 +102,6 @@ Scheduler userScheduler;
   size_t outgoingPos = 0;
 
 
-
 // -----------------------
 // TaskScheduler file sender
 // Must be global
@@ -123,8 +118,6 @@ Task fileTask(
         sendFileChunk();
     }
 );
-
-
 
 
 // -----------------------
@@ -165,13 +158,15 @@ String boxLine(String content, int width)
 String boxLineHTML(String content, int visibleLength, int width)
 {
     String line = "| ";
-    
+
     line += content;
 
     int spaces = width - visibleLength - 3;
 
-    for(int i=0;i<spaces;i++)
-        line += " ";
+    for(int i = 0; i < spaces; i++)
+    {
+        line += "&nbsp;";
+    }
 
     line += "|";
 
@@ -197,14 +192,25 @@ String progressBar(int percent, int width)
 
     return bar;
 }
+
+// Helper for local files (physical node specific files, like configs, bg images)
+bool isSyncIgnored(String name)
+{
+    if(name.startsWith("LOCAL_"))
+        return true;
+
+    if(name.endsWith(".tmp"))
+        return true;
+
+    return false;
+}
+
 // -----------------------
 // Base64
 // -----------------------
 
 const char b64chars[] =
 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-
 
 void base64Encode(
     uint8_t *data,
@@ -215,7 +221,6 @@ void base64Encode(
     output = "";
 
     int i = 0;
-
 
     while(i < len)
     {
@@ -508,12 +513,15 @@ void receivedCallback(uint32_t from, String &msg)
         {
         
             String filename = dir.fileName();
+
+            
+            if(isSyncIgnored(filename)) // ignore local files
+              continue;
         
             if(filename.endsWith(".tmp"))
             {
                 continue;
             }
-        
         
             String reply;
             reply.reserve(80);
@@ -543,51 +551,57 @@ void receivedCallback(uint32_t from, String &msg)
     // FILE ANNOUNCEMENT
     // -----------------------
 
-if(msg.startsWith("FILE:"))
-{
-
-    int p1 = msg.indexOf(':',5);
-
-    String filename =
-        msg.substring(5,p1);
-
-    size_t filesize =
-        msg.substring(p1+1).toInt();
-
-
-    Serial.print("Remote file: ");
-    Serial.print(filename);
-    Serial.print(" ");
-    Serial.println(filesize);
-
-
-
-    if(!hasFile(filename) && requestedFile != filename)
+    if(msg.startsWith("FILE:"))
     {
+    
+        int p1 = msg.indexOf(':',5);
+    
+        String filename =
+            msg.substring(5,p1);
 
-        requestedFile = filename;
-        requestedFrom = from;
-
-        String request;
-        request.reserve(80);
-
-        request = "GET_FILE:";
-        request += filename;
-
-        mesh.sendSingle(
-            from,
-            request
-        );
-
+        if(isSyncIgnored(filename)) 
+        {
+            Serial.println("Ignoring LOCAL file");
+            return;
+        }
+    
+        size_t filesize =
+            msg.substring(p1+1).toInt();
+    
+    
+        Serial.print("Remote file: ");
+        Serial.print(filename);
+        Serial.print(" ");
+        Serial.println(filesize);
+    
+    
+    
+        if(!hasFile(filename) && requestedFile != filename)
+        {
+    
+            requestedFile = filename;
+            requestedFrom = from;
+    
+            String request;
+            request.reserve(80);
+    
+            request = "GET_FILE:";
+            request += filename;
+    
+            mesh.sendSingle(
+                from,
+                request
+            );
+    
+        }
+        else
+        {
+            Serial.println("Already requested");
+        }
+    
+    
+        return;
     }
-    else
-    {
-        Serial.println("Already requested");
-    }
-
-
-    return;
-}
 
 
 
@@ -601,9 +615,14 @@ if(msg.startsWith("FILE:"))
     if(msg.startsWith("GET_FILE:"))
     {
 
-        String filename =
-            msg.substring(9);
-            
+        String filename = msg.substring(9);
+
+        if(isSyncIgnored(filename))
+        {
+            Serial.println("Refusing LOCAL transfer");
+            return;
+        }
+    
         if(sendingFile)
         {
             Serial.println("Queueing transfer");
@@ -1103,15 +1122,21 @@ fileTask.enable();
     html += "<html><head>";
     html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
     html += "<style>";
+    
     html += "body {";
-    html += "background:#000;";
+    html += "background-color:#000;";
+    html += "background-image:url('/download?file=LOCAL_background.jpg');";
+    html += "background-position:center;";
+    html += "background-size:cover;";
+    html += "background-attachment:fixed;";
+    html += "background-repeat:no-repeat;";
     html += "color:#fff;";
-    html += "font-family: monospace;";
+    html += "font-family:monospace;";
     html += "font-size:16px;";
     html += "margin:0;";
     html += "padding:10px;";
     html += "}";
-  
+      
     html += "pre {";
     html += "font-family: monospace;";
     html += "white-space: pre;";
@@ -1122,15 +1147,35 @@ fileTask.enable();
     html += "color:white;";
     html += "font-family:monospace;";
     html += "}";
-    
+        
     html += ".asciiButton {";
-    html += "background:black;";
+    html += "background:rgba(0,0,0,0.45);";
+    html += "backdrop-filter:blur(5px);";
+    html += "-webkit-backdrop-filter:blur(5px);";
     html += "color:white;";
     html += "border:0;";
     html += "font-family:monospace;";
     html += "font-size:16px;";
     html += "cursor:pointer;";
     html += "padding:0;";
+    html += "margin:0;";
+    html += "}";
+
+    // remove ghost newlines
+    html += "form {";
+    html += "display:inline;";
+    html += "margin:0;";
+    html += "padding:0;";
+    html += "}";
+
+    html += "label.asciiButton {";
+    html += "display:inline;";
+    html += "}";
+    
+    
+    html += "button.asciiButton {";
+    html += "appearance:none;";
+    html += "-webkit-appearance:none;";
     html += "}";
 
     html += "a {";
@@ -1254,7 +1299,8 @@ fileTask.enable();
     // Files
     // -----------------------
 
-    html += "<pre id='files'>";
+    html += "<div id='files'>";
+    html += "<pre>";
 
     html += "+------------------------------------+\n";
     html += boxLine("[ files ]", 38);
@@ -1263,9 +1309,8 @@ fileTask.enable();
     html += boxLine("", 38); // Give some space to the title
     html += "\n";
     
-    
     Dir dir = LittleFS.openDir("/");
-    
+
     while(dir.next())
     {
         String name = dir.fileName();
@@ -1274,20 +1319,38 @@ fileTask.enable();
             continue;
     
     
+        String checkName = name;
+    
+        if(checkName.startsWith("/"))
+        {
+            checkName = checkName.substring(1);
+        }
+    
+    
+        if(checkName.startsWith("LOCAL_"))
+            continue;
+    
+    
         String fileEntry;
-
+    
         fileEntry = name;
-        
+    
         fileEntry += " <a href='/download?file=";
         fileEntry += name;
         fileEntry += "'>[download]</a>";
+   
         
+        int visibleLength = name.length() + 11;
+    
+    
+        html += boxLineHTML(
+            fileEntry,
+            visibleLength,
+            38
+        );
+            
+        Serial.println(html);
         
-        int visibleLength = name.length() + 11; 
-        // " " + "[download]" = 11 visible chars
-        
-        
-        html += boxLineHTML(fileEntry, visibleLength, 38);
         html += "\n";
     }
     
@@ -1295,6 +1358,7 @@ fileTask.enable();
     html += "+------------------------------------+\n";
     
     html += "</pre>";
+    html += "</div>";
 
 
 
@@ -1349,51 +1413,75 @@ fileTask.enable();
     // Upload
     // -----------------------
     
-    html += "<form method='POST' action='/upload' enctype='multipart/form-data'>";
-    
-    html += "<pre>";
+    html += "<div id='upload'><pre>";
     
     html += "+------------------------------------+\n";
-    
-    html += boxLineHTML("[ upload ]", 10, 38);
+    html += boxLine("[ upload ]",38);
     html += "\n";
 
-        
-    html += boxLine("", 38); //added
+    html += boxLine("",38);
     html += "\n";
-
     
+    html += "<form method='POST' action='/upload' ";
+    html += "enctype='multipart/form-data'>";
+    
+    
+    // hidden real picker
+    html += "<input type='file' id='file' name='upload' style='display:none;'>";
+    
+    
+    // choose button line
+    String chooseLine;
+    
+    chooseLine = "<label for='file' class='asciiButton'>[ choose file ]</label>";
     
     html += boxLineHTML(
-        "<input type='file' id='file' name='upload' style='display:none;'>"
-        "<label for='file' class='asciiButton'>[ choose file ]</label>",
-        15,   // visible chars: "[ choose file ]"
+        chooseLine,
+        15, // 15 almost....
         38
     );
+    
     html += "\n";
     
+    
+    // filename line
+    String fileLine;
+    
+    fileLine = "file: ";
+    fileLine += "<span id='filename'>none</span>";
     
     html += boxLineHTML(
-        "file: <span id='filename'>none</span>",
-        10,   // "file: " + "none"
+        fileLine,
+        10, // PERFECT
         38
     );
+    
     html += "\n";
     
+    
+    // upload button line
+    String uploadLine;
+    
+    uploadLine = "<button class='asciiButton' type='submit'>";
+    uploadLine += "[ upload ]";
+    uploadLine += "</button>";
     
     html += boxLineHTML(
-        "<button class='asciiButton' type='submit'>[ upload ]</button>",
-        10,   // "[ upload ]"
+        uploadLine,
+        10,
         38
     );
-    html += "\n";
-    
-    
-    html += "+------------------------------------+\n";
-    
-    html += "</pre>";
-    
+ 
+       
     html += "</form>";
+    
+    html += "\n";
+    html += boxLine("",38);
+    html += "\n";
+    
+    html += "+------------------------------------+\n";
+
+    html += "</pre></div>";
 
     // -----------------------
     // Transfer status
@@ -1713,56 +1801,57 @@ fileTask.enable();
     {
     
         String out;
-    
+
+        out += "<pre>";
+        
         out += "+------------------------------------+\n";
         out += boxLine("[ files ]",38);
         out += "\n";
     
         Dir dir = LittleFS.openDir("/");
-    
+
         while(dir.next())
-        {
-            String name = dir.fileName();
-        
-            if(name.endsWith(".tmp"))
-                continue;
-        
-        
-            String entry;
-        
-            entry = name;
-        
-            entry += " <a href='/download?file=";
-            entry += name;
-            entry += "'>[download]</a>";
-        
-        
-            int visibleLength = name.length() + 11;
-            // space + [download]
-        
-        
-            out += boxLineHTML(
-                entry,
-                visibleLength,
-                38
-            );
-        
-            out += "\n";
-        }
-    
-    
-        out += "+------------------------------------+";
-    
-            
-        request->send(
-            200,
-            "text/html",
-            out
-        );
+{
+    String name = dir.fileName();
 
-    });
+    if(name.endsWith(".tmp"))
+        continue;
 
-  
+    if(name.startsWith("LOCAL_"))
+        continue;
+
+    String entry;
+
+    entry = name;
+
+    entry += " <a href='/download?file=";
+    entry += name;
+    entry += "'>[download]</a>";
+
+    int visibleLength = name.length() + 11;
+
+    out += boxLineHTML(
+        entry,
+        visibleLength,
+        38
+    );
+
+    out += "\n";
+}   // <-- THIS closes while
+
+
+out += "+------------------------------------+\n";
+
+out += "</pre>";
+
+request->send(
+    200,
+    "text/html",
+    out
+);
+
+}); 
+          
   server.begin();
 
   Serial.println("HTTP server started");
@@ -1817,24 +1906,4 @@ void loop()
           }
       }
   }
-
-//    static unsigned long last = 0;
-//  
-//    if (millis() - last > 3000)
-//    {
-//      last = millis();
-//  
-//      Serial.println("----");
-//      Serial.print("Node ID: ");
-//      Serial.println(mesh.getNodeId());
-//  
-//      Serial.print("Connections: ");
-//      Serial.println(mesh.getNodeList().size());
-//  
-//      for(auto node : mesh.getNodeList())
-//      {
-//        Serial.print("Connected: ");
-//        Serial.println(node);
-//      }
-//    }
 }
