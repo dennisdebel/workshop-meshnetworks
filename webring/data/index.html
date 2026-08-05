@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="stylesheet" href="style.css">
+
+</head>
+
+
+<body>
+
+
+<pre>
+
++------------------------------------+
+| mesh webring                      |
++------------------------------------+
+
+my node:
+
+<span id="myNode"></span>
+
+
+connected nodes:
+
+<div id="nodes">
+loading...
+</div>
+
+
+</pre>
+
+
+<div id="content">
+Select a node
+</div>
+
+
+<!-- old -->
+<!-- <iframe id="content" src="about:blank"></iframe> -->
+
+
+<script src="app.js"></script>
+
+
+</body>
+
+</html>
+
+<!-- <!DOCTYPE html>
+<html>
+
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+
+body {
+    background: black;
+    color: white;
+    font-family: monospace;
+    padding: 20px;
+}
+
+.box {
+    border: 1px solid white;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+a {
+    color: white;
+}
+
+#content {
+    border: 1px solid white;
+    padding: 15px;
+    min-height: 100px;
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<div class="box">
+
++--------------------------------+
+| mesh webring                   |
++--------------------------------+
+
+<br><br>
+
+my node:
+<br>
+<span id="myNode"></span>
+
+<br><br>
+
+connected nodes:
+<br><br>
+
+<div id="nodes">
+loading...
+</div>
+
+</div>
+
+
+
+<div id="content">
+Select a node
+</div>
+<a href="#" onclick="loadNode('2880712319','/index.html'); return false;">
+2880712319
+</a>
+
+
+<script>
+
+
+// change this automatically later
+let myNode = "2882848806";
+
+
+document.getElementById("myNode").innerHTML = myNode;
+
+
+
+function addNode(id)
+{
+    let div = document.getElementById("nodes");
+
+
+    let link = document.createElement("a");
+
+    link.href="#";
+
+    link.innerHTML = id;
+
+
+    link.onclick = function()
+    {
+        loadNode(
+            id,
+            "/index.html"
+        );
+
+        return false;
+    };
+
+
+    div.appendChild(link);
+
+    div.appendChild(
+        document.createElement("br")
+    );
+}
+
+
+
+
+function loadNode(node, path)
+{
+
+    document.getElementById("content").innerHTML =
+        "Loading node " + node + "...";
+
+
+    fetch(
+        "/mesh/" + node + path
+    )
+    .then(r => r.json())
+    .then(() =>
+    {
+        checkProxy();
+    });
+
+}
+
+
+
+function checkProxy()
+{
+
+    fetch("/proxy-status")
+
+    .then(r => r.json())
+
+    .then(data =>
+    {
+
+        if(data.status == "ready")
+        {
+
+            fetch("/proxy-data")
+
+            .then(r => r.text())
+
+            .then(html =>
+            {
+
+                document.getElementById("content").innerHTML =
+                    html;
+
+            });
+
+        }
+
+        else
+        {
+
+            setTimeout(
+                checkProxy,
+                200
+            );
+
+        }
+
+    });
+
+}
+
+
+
+// TEST NODE LIST
+// replace later with your dynamic list
+
+addNode("2880712319");
+
+
+</script>
+
+
+</body>
+
+</html> -->

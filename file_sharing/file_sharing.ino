@@ -9,9 +9,7 @@
 #else
 #include <AsyncTCP.h>
 #endif
-
 #include <ESPAsyncWebServer.h>
-
 
 // -----------------------
 // DNS hijacking
@@ -38,7 +36,6 @@ Scheduler userScheduler;
 
 #define MAX_UPLOAD_SIZE 100000 //(100Kb)
 
-
 // -----------------------
 // Incoming file
 // -----------------------
@@ -59,11 +56,9 @@ struct IncomingFile
 
 IncomingFile incoming;
 
-
 // -----------------------
 // Incoming file queue
 // -----------------------
-
 
   struct FileRequest
   {
@@ -80,7 +75,7 @@ IncomingFile incoming;
           if(req.node == node && req.filename == filename)
               return true;
       }
-  
+ 
       return false;
   }
 
@@ -108,7 +103,6 @@ IncomingFile incoming;
 // -----------------------
 
 void sendFileChunk();
-
 
 Task fileTask(
     300, //slowwwwwww ..or fast..thats the question...
@@ -233,19 +227,14 @@ void base64Encode(
             (octet_a << 16) |
             (octet_b << 8) |
             octet_c;
-
-
-
+            
         output += b64chars[(triple >> 18) & 0x3F];
         output += b64chars[(triple >> 12) & 0x3F];
-
 
         if(i - 2 < len)
             output += b64chars[(triple >> 6) & 0x3F];
         else
             output += '=';
-
-
 
         if(i - 1 < len)
             output += b64chars[triple & 0x3F];
@@ -253,9 +242,6 @@ void base64Encode(
             output += '=';
     }
 }
-
-
-
 
 int base64Decode(
     String input,
@@ -266,18 +252,14 @@ int base64Decode(
     int valb = -8;
     int outLen = 0;
 
-
     for(int i = 0; i < input.length(); i++)
     {
         char c = input[i];
 
-
         if(c == '=')
             break;
 
-
         int idx = -1;
-
 
         for(int j = 0; j < 64; j++)
         {
@@ -288,14 +270,11 @@ int base64Decode(
             }
         }
 
-
         if(idx < 0)
             continue;
 
-
         val = (val << 6) + idx;
         valb += 6;
-
 
         if(valb >= 0)
         {
@@ -306,10 +285,8 @@ int base64Decode(
         }
     }
 
-
     return outLen;
 }
-
 
 // -----------------------
 // File Queue
@@ -322,17 +299,14 @@ void startNextFile()
     if(sendQueue.empty())
         return;
 
-
     FileRequest req = sendQueue.front();
 
     sendQueue.erase(sendQueue.begin());
-
 
     outgoingFile = LittleFS.open(
         req.filename,
         "r"
     );
-
 
     if(!outgoingFile)
     {
@@ -340,28 +314,22 @@ void startNextFile()
         return;
     }
 
-
     outgoingNode = req.node;
     outgoingFilename = req.filename;
     outgoingPos = 0;
 
-
     String start;
-
     start = "FILE_START:";
     start += outgoingFilename;
     start += ":";
     start += outgoingFile.size();
-
 
     mesh.sendSingle(
         outgoingNode,
         start
     );
 
-
     sendingFile=true;
-
 
     Serial.print("Starting queued transfer: ");
     Serial.println(outgoingFilename);
@@ -378,7 +346,6 @@ void sendFileChunk()
     if(!sendingFile)
         return;
 
-    
     // guard heap, check before attempting file transfers
     if(ESP.getFreeHeap() < 20000)
     {
@@ -388,7 +355,6 @@ void sendFileChunk()
 
     Serial.print("Heap: ");
     Serial.println(ESP.getFreeHeap());
-
     Serial.print("Offset: ");
     Serial.println(outgoingPos);
     
@@ -397,22 +363,16 @@ void sendFileChunk()
 
         outgoingFile.close();
 
-
         String endMsg;
         endMsg.reserve(64);
 
-
         endMsg = "FILE_END:";
         endMsg += outgoingFilename;
-
-
 
         mesh.sendSingle(
             outgoingNode,
             endMsg
         );
-
-
 
         outgoingFilename = "";
 
@@ -425,36 +385,24 @@ void sendFileChunk()
         return;
     }
 
-
-
-
-
     int len =
         outgoingFile.read(
             sendBuffer,
             sizeof(sendBuffer)
         );
 
-
-
     String encoded;
     encoded.reserve(180);
-
-
 
     base64Encode(
         sendBuffer,
         len,
         encoded
     );
-
-
-
-    
+  
     String chunk;
     chunk.reserve(430);
-    
-    
+      
     chunk = "FILE_CHUNK:";
     chunk += outgoingFilename;
     chunk += ":";
@@ -462,14 +410,10 @@ void sendFileChunk()
     chunk += ":";
     chunk += encoded;
 
-
-
     mesh.sendSingle(
         outgoingNode,
         chunk
     );
-
-
 
     outgoingPos += len;
 }
@@ -480,7 +424,6 @@ void sendFileChunk()
 
 void receivedCallback(uint32_t from, String &msg)
 {
-
     Serial.print("RX ");
     Serial.print(from);
     Serial.print(": ");
@@ -508,13 +451,10 @@ void receivedCallback(uint32_t from, String &msg)
 
         Dir dir = LittleFS.openDir("/");
 
-
         while(dir.next())
         {
-        
             String filename = dir.fileName();
 
-            
             if(isSyncIgnored(filename)) // ignore local files
               continue;
         
@@ -525,13 +465,11 @@ void receivedCallback(uint32_t from, String &msg)
         
             String reply;
             reply.reserve(80);
-        
-        
+          
             reply = "FILE:";
             reply += filename;
             reply += ":";
             reply += dir.fileSize();
-        
         
             mesh.sendSingle(
                 from,
@@ -539,13 +477,8 @@ void receivedCallback(uint32_t from, String &msg)
             );
         }
 
-
         return;
     }
-
-
-
-
 
     // -----------------------
     // FILE ANNOUNCEMENT
@@ -568,17 +501,13 @@ void receivedCallback(uint32_t from, String &msg)
         size_t filesize =
             msg.substring(p1+1).toInt();
     
-    
         Serial.print("Remote file: ");
         Serial.print(filename);
         Serial.print(" ");
         Serial.println(filesize);
     
-    
-    
         if(!hasFile(filename) && requestedFile != filename)
         {
-    
             requestedFile = filename;
             requestedFrom = from;
     
@@ -599,13 +528,8 @@ void receivedCallback(uint32_t from, String &msg)
             Serial.println("Already requested");
         }
     
-    
         return;
     }
-
-
-
-
 
 
     // -----------------------
@@ -643,8 +567,6 @@ void receivedCallback(uint32_t from, String &msg)
             }
 
             bool alreadyQueued=false;
-
-            
             
             for(auto &q : sendQueue)
             {
@@ -674,14 +596,11 @@ void receivedCallback(uint32_t from, String &msg)
                 "r"
             );
 
-
         if(!outgoingFile)
         {
             Serial.println("missing file");
             return;
         }
-
-
 
         outgoingNode = from;
 
@@ -689,38 +608,25 @@ void receivedCallback(uint32_t from, String &msg)
 
         outgoingPos = 0;
 
-
-
         String start;
         start.reserve(100);
-
 
         start = "FILE_START:";
         start += filename;
         start += ":";
         start += outgoingFile.size();
 
-
-
         mesh.sendSingle(
             from,
             start
         );
 
-
-
         sendingFile = true;
-
 
         Serial.println("File transfer queued");
 
-
         return;
     }
-
-
-
-
 
 
     // -----------------------
@@ -729,20 +635,14 @@ void receivedCallback(uint32_t from, String &msg)
 
     if(msg.startsWith("FILE_START:"))
     {
-
         int p1 =
             msg.indexOf(':',11);
-
-
 
         incoming.name =
             msg.substring(11,p1);
 
-
-
         incoming.size =
             msg.substring(p1+1).toInt();
-
 
         incoming.received = 0;
         
@@ -754,8 +654,6 @@ void receivedCallback(uint32_t from, String &msg)
         
         receivingFile=true;
 
-
-
         String tempName;
 
         tempName.reserve(80);
@@ -766,7 +664,6 @@ void receivedCallback(uint32_t from, String &msg)
         {
             tempName += ".tmp";
         }
-
 
         if(getFreeSpace() < incoming.size) // prevent full nodes to accept transfers!
         {
@@ -780,20 +677,11 @@ void receivedCallback(uint32_t from, String &msg)
                 "w"
             );
 
-
-
         Serial.println("Receiving:");
         Serial.println(incoming.name);
 
-
-
         return;
     }
-
-
-
-
-
 
 
     // -----------------------
@@ -802,16 +690,11 @@ void receivedCallback(uint32_t from, String &msg)
 
     if(msg.startsWith("FILE_CHUNK:"))
     {
-
-
         int p1 =
             msg.indexOf(':',11);
 
-
         int p2 =
             msg.indexOf(':',p1+1);
-
-
 
         int offset =
             msg.substring(
@@ -819,16 +702,10 @@ void receivedCallback(uint32_t from, String &msg)
                 p2
             ).toInt();
 
-
-
         String encoded =
             msg.substring(p2+1);
 
-
-
         uint8_t decoded[400];
-
-
 
         int decodedLen =
             base64Decode(
@@ -836,83 +713,67 @@ void receivedCallback(uint32_t from, String &msg)
                 decoded
             );
 
-
-
         if(incoming.file)
         {
-
             incoming.file.seek(offset);
-
 
             incoming.file.write(
                 decoded,
                 decodedLen
             );
 
-
             incoming.received += decodedLen;
         }
 
-
-
         return;
     }
-
-
-
-
-
 
 
     // -----------------------
     // FILE END
     // -----------------------
 
-if(msg.startsWith("FILE_END:"))
-{
-
-    if(incoming.file)
+    if(msg.startsWith("FILE_END:"))
     {
-        incoming.file.close();
-
-        if(LittleFS.exists(incoming.name))
+    
+        if(incoming.file)
         {
-            LittleFS.remove(incoming.name);
+            incoming.file.close();
+    
+            if(LittleFS.exists(incoming.name))
+            {
+                LittleFS.remove(incoming.name);
+            }
+    
+            String tempName;
+    
+            tempName.reserve(80);
+    
+            tempName = incoming.name;
+    
+            if(!tempName.endsWith(".tmp"))
+            {
+                tempName += ".tmp";
+            }
+    
+            LittleFS.rename(
+                tempName,
+                incoming.name
+            );
         }
-
-        String tempName;
-
-        tempName.reserve(80);
-
-        tempName = incoming.name;
-
-        if(!tempName.endsWith(".tmp"))
-        {
-            tempName += ".tmp";
-        }
-
-        LittleFS.rename(
-            tempName,
-            incoming.name
-        );
+    
+        Serial.println("Finished:");
+        Serial.println(incoming.name);
+    
+        // release transfer lock
+        receivingFile = false;
+    
+        // release request ownership
+        requestedFile = "";
+        requestedFrom = 0;
+    
+        return;
     }
-
-
-    Serial.println("Finished:");
-    Serial.println(incoming.name);
-
-
-    // release transfer lock
-    receivingFile = false;
-
-    // release request ownership
-    requestedFile = "";
-    requestedFrom = 0;
-
-
-    return;
-}
-
 
 
     // -----------------------
@@ -925,12 +786,9 @@ if(msg.startsWith("FILE_END:"))
         String filename =
             msg.substring(9);
 
-
-
         Serial.println("New file announced:");
         Serial.println(filename);
-
-        
+ 
         if(millis() - lastSyncRequest > 10000) // Sync cool down period
         {
             lastSyncRequest = millis();
@@ -939,8 +797,6 @@ if(msg.startsWith("FILE_END:"))
                 "FILE_LIST"
             );
         }
-
-
 
         return;
     }
@@ -979,12 +835,10 @@ void handleUpload(
     );
   }
 
-
   if(uploadFile)
   {
     uploadFile.write(data, len);
   }
-
 
   if(final)
   {
@@ -1008,7 +862,6 @@ void setup()
   Serial.println("Starting...");
 
   // Filesystem
-
   if(!LittleFS.begin())
   {
     Serial.println("LittleFS failed!");
@@ -1018,7 +871,6 @@ void setup()
   Serial.println("LittleFS OK");
 
   // Print files
-
   Dir dir = LittleFS.openDir("/");
 
   while(dir.next())
@@ -1040,13 +892,10 @@ void setup()
 
 
   // Mesh
-
   mesh.setDebugMsgTypes(
     ERROR |
     STARTUP
   );
-
-
 
   mesh.init(
       MESH_PREFIX,
@@ -1055,13 +904,10 @@ void setup()
       MESH_PORT
   );
   
-
-
 userScheduler.addTask(fileTask);
 fileTask.enable();
   
   Serial.println("Mesh started");
-
   
   Serial.print("AP SSID: ");
   Serial.println(MESH_PREFIX);
@@ -1069,22 +915,16 @@ fileTask.enable();
   Serial.print("AP IP: ");
   Serial.println(WiFi.softAPIP());
 
-
   Serial.print("INTERNAL AP: ");
   Serial.println(WiFi.softAPSSID());
 
-  
-
- 
   mesh.onReceive(
     &receivedCallback
   );
 
-
   mesh.onNewConnection([](uint32_t nodeId){
       Serial.printf("NEW CONNECTION: %u\n", nodeId);
   });
-  
   
   mesh.onChangedConnections([](){
   
@@ -1101,7 +941,6 @@ fileTask.enable();
       }
   
       Serial.println();
-  
   });
 
 
@@ -1115,10 +954,8 @@ fileTask.enable();
   server.on("/", HTTP_GET,
   [](AsyncWebServerRequest *request)
   {
-
     String html;
-
-
+    
     html += "<html><head>";
     html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
     html += "<style>";
@@ -1171,7 +1008,6 @@ fileTask.enable();
     html += "label.asciiButton {";
     html += "display:inline;";
     html += "}";
-    
     
     html += "button.asciiButton {";
     html += "appearance:none;";
@@ -1235,7 +1071,6 @@ fileTask.enable();
 
     html += "<pre>";
 
-
     html += "+------------[ MESH NODE ]-----------+\n";
 
     html += "\n";
@@ -1250,7 +1085,6 @@ fileTask.enable();
     
     html += "+------------[ identity ]------------+\n";
     
-    
     String nodeLine;
     nodeLine = "node id: ";
     nodeLine += mesh.getNodeId();
@@ -1261,7 +1095,6 @@ fileTask.enable();
         38
     );
     html += "\n";
-    
     
     String heapLine;
     heapLine = "heap: ";
@@ -1275,7 +1108,6 @@ fileTask.enable();
     );
     html += "\n";
     
-    
     String peerLine;
     peerLine = "peers: ";
     peerLine += mesh.getNodeList().size();
@@ -1286,8 +1118,7 @@ fileTask.enable();
         38
     );
     html += "\n";
-    
-    
+     
     html += "+------------------------------------+\n";
     
     html += "</pre>";
@@ -1318,7 +1149,6 @@ fileTask.enable();
         if(name.endsWith(".tmp"))
             continue;
     
-    
         String checkName = name;
     
         if(checkName.startsWith("/"))
@@ -1326,10 +1156,8 @@ fileTask.enable();
             checkName = checkName.substring(1);
         }
     
-    
         if(checkName.startsWith("LOCAL_"))
             continue;
-    
     
         String fileEntry;
     
@@ -1338,11 +1166,9 @@ fileTask.enable();
         fileEntry += " <a href='/download?file=";
         fileEntry += name;
         fileEntry += "'>[download]</a>";
-   
-        
+           
         int visibleLength = name.length() + 11;
-    
-    
+     
         html += boxLineHTML(
             fileEntry,
             visibleLength,
@@ -1354,13 +1180,9 @@ fileTask.enable();
         html += "\n";
     }
     
-    
     html += "+------------------------------------+\n";
-    
     html += "</pre>";
     html += "</div>";
-
-
 
 
     // -----------------------
@@ -1377,10 +1199,8 @@ fileTask.enable();
     html += boxLine("",38);
     html += "\n";
     
-    
     html += boxLine(bar + " " + String(percent) + "%",38);
     html += "\n";
-    
     
     String usedLine;
     
@@ -1393,7 +1213,6 @@ fileTask.enable();
     html += boxLine(usedLine,38);
     html += "\n";
     
-    
     String freeLine;
     
     freeLine = "free: ";
@@ -1403,11 +1222,9 @@ fileTask.enable();
     html += boxLine(freeLine,38);
     html += "\n";
     
-    
     html += "+------------------------------------+\n";
     
     html += "</pre>";
-
     
     // -----------------------
     // Upload
@@ -1425,10 +1242,8 @@ fileTask.enable();
     html += "<form method='POST' action='/upload' ";
     html += "enctype='multipart/form-data'>";
     
-    
     // hidden real picker
     html += "<input type='file' id='file' name='upload' style='display:none;'>";
-    
     
     // choose button line
     String chooseLine;
@@ -1442,7 +1257,6 @@ fileTask.enable();
     );
     
     html += "\n";
-    
     
     // filename line
     String fileLine;
@@ -1458,7 +1272,6 @@ fileTask.enable();
     
     html += "\n";
     
-    
     // upload button line
     String uploadLine;
     
@@ -1471,8 +1284,7 @@ fileTask.enable();
         10,
         38
     );
- 
-       
+   
     html += "</form>";
     
     html += "\n";
@@ -1554,7 +1366,6 @@ fileTask.enable();
 
     html += "document.getElementById('filename').innerHTML=this.files[0].name;";
 
-
     html += "if(this.files[0].size > 100000){";
 
     html += "alert('File too big!');";
@@ -1563,13 +1374,9 @@ fileTask.enable();
 
     html += "}";
 
-
     html += "};";
 
-
     html += "</script>";
-
-
 
     html += "</body></html>";
 
@@ -1603,10 +1410,8 @@ fileTask.enable();
       return;
     }
 
-
     String filename =
       request->getParam("file")->value();
-
 
     request->send(
       LittleFS,
@@ -1637,13 +1442,10 @@ fileTask.enable();
    // Peer list 
    server.on("/identity", HTTP_GET,
     [](AsyncWebServerRequest *request)
-    {
-    
+    {    
         String out;
     
-    
         out += "+------------[ identity ]------------+\n";
-    
     
         String nodeLine;
         nodeLine = "node id: ";
@@ -1655,7 +1457,6 @@ fileTask.enable();
         );
     
         out += "\n";
-    
     
         String heapLine;
         heapLine = "heap: ";
@@ -1669,7 +1470,6 @@ fileTask.enable();
     
         out += "\n";
     
-    
         String peerLine;
         peerLine = "peers: ";
         peerLine += mesh.getNodeList().size();
@@ -1681,9 +1481,7 @@ fileTask.enable();
     
         out += "\n";
     
-    
         out += "+------------------------------------+";
-    
     
         request->send(
             200,
@@ -1701,17 +1499,13 @@ fileTask.enable();
 
     String out;
 
-
     out += "+------------------------------------+\n";
-
 
     out += boxLine("[ transfer status ]", 38);
     out += "\n";
 
-
     if(sendingFile)
     {
-
         String line;
 
         line = "TX: ";
@@ -1719,7 +1513,6 @@ fileTask.enable();
 
         out += boxLine(line, 38);
         out += "\n";
-
 
         int percent = 0;
 
@@ -1730,29 +1523,23 @@ fileTask.enable();
             / outgoingFile.size();
         }
 
-
         line = progressBar(percent,25);
         line += " ";
         line += percent;
         line += "%";
 
-
         out += boxLine(line,38);
         out += "\n";
-
     }
     else if(receivingFile)
     {
-
         String line;
 
         line = "RX: ";
         line += incoming.name;
 
-
         out += boxLine(line,38);
         out += "\n";
-
 
         int percent=0;
 
@@ -1763,28 +1550,20 @@ fileTask.enable();
             / incoming.size;
         }
 
-
         line = progressBar(percent,25);
         line += " ";
         line += percent;
         line += "%";
-
-
         out += boxLine(line,38);
         out += "\n";
-
     }
     else
     {
-
         out += boxLine("idle",38);
         out += "\n";
-
     }
 
-
     out += "+------------------------------------+";
-
 
     request->send(
         200,
@@ -1799,7 +1578,6 @@ fileTask.enable();
     server.on("/files", HTTP_GET,
     [](AsyncWebServerRequest *request)
     {
-    
         String out;
 
         out += "<pre>";
@@ -1839,7 +1617,6 @@ fileTask.enable();
     out += "\n";
 }   // <-- THIS closes while
 
-
 out += "+------------------------------------+\n";
 
 out += "</pre>";
@@ -1856,9 +1633,7 @@ request->send(
 
   Serial.println("HTTP server started");
 
-
-
-  // Set a custom hostname for the device
+//  // Set a custom hostname for the device, not sure what this does (nothing it seems)
 //  bool success = mesh.setHostname("mesh");
 //    if (success) {
 //      Serial.println("Hostname set successfully.");
@@ -1869,10 +1644,7 @@ request->send(
 
   delay(1000); // maybe not needed
 
- dnsServer.start(DNS_PORT, "*", WiFi.softAPIP()); // redirect dns request to AP ip
-
- 
-
+  dnsServer.start(DNS_PORT, "*", WiFi.softAPIP()); // redirect dns request to AP ip
 
 } // end of setup()
 
@@ -1889,9 +1661,7 @@ void loop()
 
   userScheduler.execute(); //send file chunks
 
-
   static unsigned long syncTimer=0;
-
 
   if(!sendingFile && !receivingFile)
   {
