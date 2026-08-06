@@ -26,7 +26,7 @@ const byte DNS_PORT = 53;
 #define MESH_PASSWORD   "12345678"
 #define MESH_PORT       5555
 
-#define CHUNK_SIZE 128
+#define CHUNK_SIZE 300 //was 120 // must be divideble by 3 (base64 triplets)
 
 #define MAX_UPLOAD_SIZE 100000 //(100Kb)
 
@@ -44,11 +44,26 @@ AsyncWebServer server(80);
 
 Scheduler userScheduler;
 
+struct MeshRequest
+  {
+      uint32_t node;
+  
+      String message;
+  
+      String mime;
+  
+      String path;
+  
+      AsyncWebServerRequest *request;
+};
+  
 // -----------------------
 // Webring proxy globals
 // -----------------------
 
-AsyncWebServerRequest *proxyRequest = nullptr;
+std::vector<MeshRequest> meshRequestQueue;
+
+MeshRequest activeProxy;
 
 AsyncResponseStream *proxyStream = nullptr;
 
@@ -56,15 +71,25 @@ bool proxyActive = false;
 
 bool proxyReady = false;
 
+bool proxyTransfer = false;
+
+// text content
+String proxyData = "";
+
+// binary content
+uint8_t *proxyBuffer = nullptr;
+
+size_t proxyLength = 0;
+
+size_t proxyExpected = 0;
+
+String lastProxyResult = "";
+
+AsyncWebServerRequest *proxyRequest = nullptr;
+
 uint32_t proxyNode = 0;
 
 String proxyFile = "";
-
-bool proxyTransfer = false;
-
-String proxyData = "";
-
-String lastProxyResult = "";
 
 String proxyMime = "text/plain";
 
@@ -150,33 +175,21 @@ String getMimeType(String filename)
 // Mesh Request Queue
 // -----------------------
 
-  struct MeshRequest
-  {
-      uint32_t node;
-      String message;
-  };
-  
-  std::vector<MeshRequest> meshRequestQueue;
 
-  
   void processMeshRequests()
   {
       if(meshRequestQueue.empty())
           return;
   
-  
       MeshRequest req =
           meshRequestQueue.front();
-  
   
       meshRequestQueue.erase(
           meshRequestQueue.begin()
       );
   
-  
       Serial.print("Sending queued request to ");
       Serial.println(req.node);
-  
   
       bool result =
           mesh.sendSingle(
@@ -184,11 +197,28 @@ String getMimeType(String filename)
               req.message
           );
   
-  
       Serial.print("Result:");
       Serial.println(result);
   }
 
+
+  struct ProxyRequest
+  {
+      uint32_t requestId; // Unique ID for each request
+      AsyncWebServerRequest *request;
+      uint32_t node;
+      String path;
+      String mime;
+  };
+  
+  std::vector<ProxyRequest> proxyQueue;
+  
+  // Change proxyRequest management variables:
+  uint32_t activeRequestId = 0;
+  uint32_t globalRequestIdCounter = 1;
+  bool activeRequestValid = false;
+
+  
 // -----------------------
 // File transfer state
 // -----------------------
@@ -214,7 +244,7 @@ String getMimeType(String filename)
 void sendFileChunk();
 
 Task fileTask(
-    300, //slowwwwwww ..or fast..thats the question...
+    20, //slowwwwwww ..or fast..thats the question... //maybe needs to be faster///
     TASK_FOREVER,
     []()
     {
@@ -394,6 +424,40 @@ void startNextFile()
 
 
 // -----------------------
+// More queuing 
+// -----------------------
+
+void startNextProxy()
+{
+    if(proxyTransfer)
+        return;
+
+    if(proxyQueue.empty())
+        return;
+
+    ProxyRequest p = proxyQueue.front();
+    proxyQueue.erase(proxyQueue.begin());
+
+    proxyRequest = p.request;
+    activeRequestId = p.requestId;
+    activeRequestValid = true; // Mark active request valid
+    proxyNode = p.node;
+    proxyMime = p.mime;
+    proxyFile = p.path;
+
+    proxyData = "";
+    proxyTransfer = true;
+
+    MeshRequest req;
+    req.node = proxyNode;
+    req.message = "GET_FILE:" + proxyFile;
+
+    meshRequestQueue.push_back(req);
+
+    Serial.printf("Started proxy (ID %u): %s\n", activeRequestId, proxyFile.c_str());
+}
+
+// -----------------------
 // Send File Chunk
 // -----------------------
 
@@ -490,94 +554,6 @@ void receivedCallback(uint32_t from, String &msg)
           Serial.println(msg);
       }
 
-//    // -----------------------
-//    // FILE LIST REQUEST
-//    // -----------------------
-//
-//    if(msg == "FILE_LIST")
-//    {
-//
-//        Dir dir = LittleFS.openDir("/");
-//
-//        while(dir.next())
-//        {
-//            String filename = dir.fileName();
-//
-//            if(isSyncIgnored(filename)) // ignore local files
-//              continue;
-//        
-//            if(filename.endsWith(".tmp"))
-//            {
-//                continue;
-//            }
-//        
-//            String reply;
-//            reply.reserve(80);
-//          
-//            reply = "FILE:";
-//            reply += filename;
-//            reply += ":";
-//            reply += dir.fileSize();
-//        
-//            mesh.sendSingle(
-//                from,
-//                reply
-//            );
-//        }
-//
-//        return;
-//    }
-
-//    // -----------------------
-//    // FILE ANNOUNCEMENT
-//    // -----------------------
-//
-//    if(msg.startsWith("FILE:"))
-//    {
-//    
-//        int p1 = msg.indexOf(':',5);
-//    
-//        String filename =
-//            msg.substring(5,p1);
-//
-//        if(isSyncIgnored(filename)) 
-//        {
-//            Serial.println("Ignoring LOCAL file");
-//            return;
-//        }
-//    
-//        size_t filesize =
-//            msg.substring(p1+1).toInt();
-//    
-//        Serial.print("Remote file: ");
-//        Serial.print(filename);
-//        Serial.print(" ");
-//        Serial.println(filesize);
-//    
-//        if(!hasFile(filename) && requestedFile != filename)
-//        {
-//            requestedFile = filename;
-//            requestedFrom = from;
-//    
-//            String request;
-//            request.reserve(80);
-//    
-//            request = "GET_FILE:";
-//            request += filename;
-//    
-//            mesh.sendSingle(
-//                from,
-//                request
-//            );
-//    
-//        }
-//        else
-//        {
-//            Serial.println("Already requested");
-//        }
-//    
-//        return;
-//    }
 
 
     // -----------------------
@@ -686,59 +662,141 @@ void receivedCallback(uint32_t from, String &msg)
     // -----------------------
     // FILE START
     // -----------------------
-
+    
     if(msg.startsWith("FILE_START:"))
     {
-     
-            Serial.print("proxyTransfer=");
-    Serial.println(proxyTransfer);
-    
-    if(proxyTransfer)
-    {
-        Serial.println("Proxy receiving file");
-    
-        return;
-    }
+        Serial.print("proxyTransfer=");
+        Serial.println(proxyTransfer);
+        Serial.print("Heap before image: "); // debug
+        Serial.println(ESP.getFreeHeap()); // debug
             
-    int p1 =
-            msg.indexOf(':',11);
+        int p1 = msg.indexOf(':', 11);
+        int p2 = msg.indexOf(':', p1 + 1);
+    
+    
+        String filename =
+            msg.substring(11, p1);
+    
+    
+        int filesize =
+            msg.substring(p1 + 1, p2).toInt();
+    
+    
+        String mime =
+            msg.substring(p2 + 1);
+    
+    
+        Serial.println("FILE:");
+        Serial.println(filename);
+        Serial.println(filesize);
+        Serial.println(mime);
+    
+    
+        // -----------------------
+        // PROXY TRANSFER
+        // -----------------------
+    
+        if(proxyTransfer)
+        {
+            Serial.println("Proxy receiving file");
+    
+    
+            proxyMime = mime;
+    
+            proxyExpected = filesize;
+    
+    
+            if(proxyMime.startsWith("image") ||
+               proxyMime.startsWith("application"))
+            {
+                Serial.println("Allocating binary buffer");
+    
+    
+//                proxyBuffer =
+//                    (uint8_t*)malloc(proxyExpected);
+  
+                if(proxyBuffer)
+                {
+                    free(proxyBuffer);
+                    proxyBuffer = nullptr;
+                }
+                
+                // Pad size up to nearest 4-byte alignment bound
+                size_t alignedSize = (proxyExpected + 3) & ~3; 
+                proxyBuffer = (uint8_t*)malloc(alignedSize);
+                
+                if(proxyBuffer) {
+                    memset(proxyBuffer, 0, alignedSize);
+                }
 
-        incoming.name =
-            msg.substring(11,p1);
 
-        incoming.size =
-            msg.substring(p1+1).toInt();
-
+    
+                if(proxyBuffer == nullptr)
+                {
+                    Serial.println("BUFFER ALLOCATION FAILED");
+                    return;
+                }
+    
+    
+                proxyLength = 0;
+            }
+            else
+            {
+                // html/css/js
+                proxyData = "";
+            }
+    
+    
+            return;
+        }
+    
+    
+    
+        // -----------------------
+        // NORMAL FILE RECEIVE
+        // -----------------------
+    
+        incoming.name = filename;
+    
+        incoming.size = filesize;
+    
         incoming.received = 0;
-        
+    
+    
         receivingFile=true;
-
+    
+    
         String tempName;
-
+    
         tempName.reserve(80);
-        
+    
         tempName = incoming.name;
-        
+    
+    
         if(!tempName.endsWith(".tmp"))
         {
             tempName += ".tmp";
         }
-
-        if(getFreeSpace() < incoming.size) // prevent full nodes to accept transfers!
+    
+    
+        if(getFreeSpace() < incoming.size)
         {
             Serial.println("Not enough storage!");
             return;
         }
-        
+    
+    
         incoming.file =
             LittleFS.open(
                 tempName,
                 "w"
             );
-
+    
+    
         Serial.println("Receiving:");
         Serial.println(incoming.name);
-
+    
+    
         return;
     }
 
@@ -757,16 +815,11 @@ void receivedCallback(uint32_t from, String &msg)
         int offset =
             msg.substring(p1+1,p2).toInt();
     
-        String encoded =
-            msg.substring(p2+1);
-    
-    
-        //uint8_t decoded[400];
-        uint8_t decoded[400] = {0};
-    
+        uint8_t decoded[512]; //or 512
+        
         int decodedLen =
             base64Decode(
-                encoded,
+                msg.substring(p2+1),
                 decoded
             );
     
@@ -774,19 +827,60 @@ void receivedCallback(uint32_t from, String &msg)
         if(proxyTransfer)
         {
             Serial.println("Appending proxy data");
-    
-            for(int i = 0; i < decodedLen; i++)
+        
+        
+            if(proxyMime.startsWith("image") ||
+               proxyMime.startsWith("application"))
             {
-                //proxyData += (char)decoded[i]; //TODO old
-                if(decoded[i] != 0)
+                // binary data
+            
+                if(proxyLength + decodedLen > proxyExpected)
+                {
+                    Serial.println("!!! PROXY BUFFER OVERFLOW !!!");
+                    Serial.print("Expected: ");
+                    Serial.println(proxyExpected);
+            
+                    Serial.print("Current: ");
+                    Serial.println(proxyLength);
+            
+                    Serial.print("Incoming: ");
+                    Serial.println(decodedLen);
+            
+                    return;
+                }
+            
+            
+                memcpy(
+                    proxyBuffer + proxyLength,
+                    decoded,
+                    decodedLen
+                );
+            
+            
+                proxyLength += decodedLen;
+            
+            
+                Serial.print("Binary length now: ");
+                Serial.println(proxyLength);
+            }
+            else
+            {
+                // text data (html/css/js)
+        
+                proxyData.reserve(proxyExpected);
+        
+                for(int i = 0; i < decodedLen; i++)
                 {
                     proxyData += (char)decoded[i];
+                    
                 }
+        
+        
+                Serial.print("Text length now: ");
+                Serial.println(proxyData.length());
             }
-    
-            Serial.print("Proxy length now: ");
-            Serial.println(proxyData.length());
-    
+        
+        
             return;
         }
     
@@ -812,59 +906,154 @@ void receivedCallback(uint32_t from, String &msg)
 
     if(msg.startsWith("FILE_END:"))
     {
-      
+
+      Serial.print("Heap after image: "); // debug
+      Serial.println(ESP.getFreeHeap()); // debug
+
       if(proxyTransfer)
       {
-          // remove accidental null bytes at the end
-          while(proxyData.length() > 0 &&
-                proxyData[proxyData.length()-1] == '\0')
-          {
-              proxyData.remove(proxyData.length()-1);
-          }
-      
-      
-          // Rewrite resource paths BEFORE sending response
-          if(proxyMime == "text/html")
-          {
-              String prefix;
-      
-              prefix = "/mesh/";
-              prefix += String(proxyNode);
-              prefix += "/";
-      
-      
-              proxyData.replace(
-                  "href=\"",
-                  String("href=\"") + prefix
-              );
-      
-              proxyData.replace(
-                  "src=\"",
-                  String("src=\"") + prefix
-              );
-          }
-      
-      
           Serial.println("Proxy file complete");
-          Serial.println(proxyData.substring(0,200));
       
       
-          if(proxyRequest != nullptr)
+          // -----------------------
+          // TEXT FILES
+          // -----------------------
+      
+          if(!proxyMime.startsWith("image") &&
+             !proxyMime.startsWith("application"))
           {
-              Serial.println("Sending delayed HTTP response");
       
-              proxyRequest->send(
-                  200,
-                  proxyMime,
-                  proxyData
-              );
+              // remove accidental null bytes
+              while(proxyData.length() > 0 &&
+                    proxyData[proxyData.length()-1] == '\0')
+              {
+                  proxyData.remove(proxyData.length()-1);
+              }
       
+      
+              // Rewrite paths in HTML
+              if(proxyMime == "text/html")
+              {
+                  String prefix;
+      
+                  prefix = "/mesh/";
+                  prefix += String(proxyNode);
+                  prefix += "/";
+      
+      
+                  proxyData.replace(
+                      "href=\"",
+                      String("href=\"") + prefix
+                  );
+      
+                  proxyData.replace(
+                      "src=\"",
+                      String("src=\"") + prefix
+                  );
+              }
+      
+      
+              Serial.println(proxyData.substring(0,200));
+      
+      
+              if(proxyRequest != nullptr)
+              {
+                  Serial.println("Sending text response");
+      
+                  proxyRequest->send(
+                      200,
+                      proxyMime,
+                      proxyData
+                  );
+      
+                  proxyRequest = nullptr;
+              }
+      
+          }
+      
+      
+// -----------------------
+          // BINARY FILES
+          // -----------------------
+          else
+          {
+              Serial.print("Binary size: ");
+              Serial.println(proxyLength);
+
+              // Check if browser connection is still valid!
+              if (activeRequestValid && proxyRequest != nullptr)
+              {
+                  Serial.println("Sending binary response...");
+
+                  uint8_t* rawBuf = proxyBuffer;
+                  size_t totalLen = proxyLength;
+
+                  proxyBuffer = nullptr; // Clear global pointer
+
+                  AsyncWebServerResponse *response = proxyRequest->beginResponse(
+                      proxyMime,
+                      totalLen,
+                      [rawBuf, totalLen](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+                          size_t remaining = totalLen - index;
+                          size_t copyLen = (remaining < maxLen) ? remaining : maxLen;
+
+                          if (copyLen > 0 && rawBuf != nullptr) {
+                              memcpy(buffer, rawBuf + index, copyLen);
+                          }
+
+                          if (index + copyLen >= totalLen) {
+                              if (rawBuf != nullptr) {
+                                  free(rawBuf);
+                              }
+                          }
+
+                          return copyLen;
+                      }
+                  );
+
+                  response->addHeader("Connection", "close");
+                  proxyRequest->send(response);
+              }
+              else
+              {
+                  Serial.println("Client disconnected before download finished. Freeing buffer.");
+                  if (proxyBuffer != nullptr) {
+                      free(proxyBuffer);
+                      proxyBuffer = nullptr;
+                  }
+              }
+
               proxyRequest = nullptr;
+              activeRequestValid = false;
+              proxyLength = 0;
           }
       
       
           proxyReady = true;
+      
           proxyTransfer = false;
+      
+          proxyData = "";
+      
+      
+          // continue queued browser requests
+          proxyActive = false;
+
+          proxyTransfer = false;
+          
+          
+          proxyRequest = nullptr;
+          
+          
+          if(proxyBuffer != nullptr)
+          {
+              free(proxyBuffer);
+              proxyBuffer=nullptr;
+          }
+          
+          
+          startNextProxy();
+      
       
           return;
       }
@@ -1039,15 +1228,15 @@ void setup()
       MESH_PORT
   );
 
-myNodeId = mesh.getNodeId();
-
-Serial.print("My node ID: ");
-Serial.println(myNodeId);
-
-
-userScheduler.addTask(fileTask);
-fileTask.enable();
+  myNodeId = mesh.getNodeId();
   
+  Serial.print("My node ID: ");
+  Serial.println(myNodeId);
+
+
+  userScheduler.addTask(fileTask);
+  fileTask.enable();
+    
   Serial.println("Mesh started");
   
   Serial.print("AP SSID: ");
@@ -1176,115 +1365,129 @@ fileTask.enable();
       request->send(response);
   
   });
-      
+
+  // retrieve own node idx
+  server.on( 
+    "/node-id",
+    HTTP_GET,
+    [](AsyncWebServerRequest *request)
+    {
+        request->send(
+            200,
+            "text/plain",
+            String(mesh.getNodeId())
+        );
+    }
+  );
+
+  // retrieve other node id's
   server.on(
-    "/mesh/*",
+    "/nodes",
     HTTP_GET,
     [](AsyncWebServerRequest *request)
     {
   
-      Serial.println("=== MESH PROXY REQUEST ===");
+        String json = "[";
+  
+        auto nodes = mesh.getNodeList();
+  
+        bool first = true;
+  
+        for(auto node : nodes)
+        {
+            if(!first)
+                json += ",";
+  
+            json += String(node);
+  
+            first=false;
+        }
+  
+        json += "]";
   
   
-      String url = request->url();
-  
-      Serial.print("URL: ");
-      Serial.println(url);
+        Serial.println("NODE LIST:");
+        Serial.println(json);
   
   
-      // Example:
-      // /mesh/2880712319/test.txt
+        request->send(
+            200,
+            "application/json",
+            json
+        );
   
+    }
+  );
   
-      int firstSlash = url.indexOf('/', 6);
-  
-  
-      if(firstSlash == -1)
+  server.on(
+      "/mesh/*",
+      HTTP_GET,
+      [](AsyncWebServerRequest *request)
       {
-          request->send(
-              400,
-              "text/plain",
-              "Bad mesh URL"
-          );
-          return;
-      }
-  
-  
-      String nodeString =
-          url.substring(6, firstSlash);
-  
-  
-      uint32_t node =
-          strtoul(
-              nodeString.c_str(),
-              NULL,
-              10
-          );
-  
-  
-      String path =
-          url.substring(firstSlash);
-      
-      proxyMime = getMimeType(path);
-      
-      proxyNode = node;
 
-          
-      Serial.print("Node: ");
-      Serial.println(node);
-  
-  
-      Serial.print("Path: ");
-      Serial.println(path);
-  
-      String msg;
-  
-      msg = "GET_FILE:";
-      msg += path;
-  
-      Serial.print("Message: ");
-      Serial.println(msg);
-  
-  
-  
-      MeshRequest req;
-  
-      req.node = node;
-      req.message = msg;
-  
-  
-      proxyTransfer = true;
-      proxyReady = false;
-      proxyData = "";
-      
-      meshRequestQueue.push_back(req);
-  
-  
-      Serial.println("Queued mesh request");
-  
-  
-      Serial.print("Queue size: ");
-      Serial.println(meshRequestQueue.size());
-  
-      proxyActive = true;
-      
-      proxyReady = false;
-      proxyData = "";
+        request->addInterestingHeader("Keep-Alive"); // Set keep-alive on the initial request
 
-//      while(!proxyReady)
-//      {
-//          delay(10); //cases crashes
-//      }
+        Serial.println("=== MESH PROXY REQUEST ===");
 
-        proxyRequest = request;
+        String url = request->url();
+        int firstSlash = url.indexOf('/', 6);
+  
+        if(firstSlash == -1)
+        {
+            request->send(400, "text/plain", "Bad mesh URL");
+            return;
+        }
+  
+        String nodeString = url.substring(6, firstSlash);
+        uint32_t node = strtoul(nodeString.c_str(), NULL, 10);
+        String path = url.substring(firstSlash);
+  
+        // Duplicate check
+        for (const auto& existing : proxyQueue) {
+                  if (existing.node == node && existing.path == path) {
+                      // Only drop if client is still actively waiting
+                      if (existing.request != nullptr && existing.request->client()->connected()) {
+                          request->send(429, "text/plain", "Already fetching asset");
+                          return;
+                      }
+                  }
+              }
+  
+        if (proxyTransfer && proxyNode == node && proxyFile == path) {
+            request->send(429, "text/plain", "Already fetching asset");
+            return;
+        }
+  
+        uint32_t reqId = globalRequestIdCounter++;
+  
+        // If browser disconnects mid-transfer, invalidate the request pointer safely
+        request->onDisconnect([reqId]() {
+            Serial.printf("Client disconnected for reqId: %u\n", reqId);
+            if (activeRequestId == reqId) {
+                activeRequestValid = false;
+            }
+            // Remove from queue if still pending
+            for (auto it = proxyQueue.begin(); it != proxyQueue.end(); ) {
+                if (it->requestId == reqId) {
+                    it = proxyQueue.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        });
+  
+        ProxyRequest p;
+        p.requestId = reqId;
+        p.request = request;
+        p.node = node;
+        p.path = path;
+        p.mime = getMimeType(path);
         
-//      request->send(
-//          200,
-//          proxyMime,
-//          proxyData
-//      );
-  
-    });
+        proxyQueue.push_back(p);
+        
+        Serial.print("Added HTTP proxy request ID: ");
+        Serial.println(reqId);
+      });
 
   // -----------------------
   // onnotfound....captive portal hack?
@@ -1490,19 +1693,6 @@ void loop()
 
   userScheduler.execute(); //send file chunks
 
-//  static unsigned long syncTimer=0;
-//
-//  if(!sendingFile && !receivingFile)
-//  {
-//      if(millis()-syncTimer>30000)
-//      {
-//          syncTimer=millis();
-//  
-//          if(mesh.getNodeList().size()>0)
-//          {
-//              mesh.sendBroadcast("FILE_LIST"); 
-//              Serial.println("Requesting file list");
-//          }
-//      }
-//  }
+  startNextProxy(); // process request queue
+
 }
