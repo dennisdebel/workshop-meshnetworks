@@ -1,0 +1,30 @@
+body {
+    background:black;
+    color:white;
+    font-family:monospace;
+    padding:10px;
+    color:blue;
+}
+
+
+a {
+    color:white;
+}
+
+
+#content {
+
+    border:1px solid white;
+
+    padding:15px;
+
+    margin-top:20px;
+
+}
+
+
+pre {
+
+    font-family:monospace;
+
+}

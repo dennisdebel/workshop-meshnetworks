@@ -1,5 +1,6 @@
-// todo: try 3 nodes, and jumping between them...
-// move css and js into the html file! (there is a bug where js is seen as binary/application and overflows buffer and breaks everything)
+
+// todo/tip: move css and js into the html file! (there is a bug where js is seen as binary/application and overflows buffer and breaks everything)
+// copy the files from the node-* folders to the root 'data' folder and upload littlefs for each node!
 
 #include "./DNSServer.h"
 #include "painlessMesh.h"

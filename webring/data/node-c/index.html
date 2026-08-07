@@ -1,0 +1,149 @@
+<html>
+<head>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+	    <!-- TOP WEBRING HEADER BAR -->
+    <div id="mesh-header">
+        <div class="header-title">+--- MESH WEBRING ---+</div>
+        <div class="header-info">
+            <strong>Current Node:</strong> <span id="myNode">loading...</span>
+        </div>
+        <div class="header-info">
+            <strong>Connected Nodes:</strong>
+            <span id="nodes">loading...</span>
+        </div>
+    </div>
+
+    <!-- MAIN NODE CONTENT -->
+    <main id="node-content">
+
+
+<h1>Hello from node c!</h1>
+
+<p>
+This page travelled through the mesh!
+</p>
+
+<img src="test.jpg">
+
+</main>
+<script type="text/javascript">
+	
+
+	function updateStatus()
+{
+
+    fetch("/node-id")
+    .then(r=>r.text())
+    .then(id =>
+    {
+        document.getElementById("myNode").innerHTML=id;
+    });
+
+
+    fetch("/nodes")
+    .then(r=>r.json())
+    .then(nodes =>
+    {
+
+        let div=document.getElementById("nodes");
+
+        div.innerHTML="";
+
+
+        if(nodes.length==0)
+        {
+            div.innerHTML="no remote nodes";
+            return;
+        }
+
+
+        nodes.forEach(id =>
+        {
+
+            let link=document.createElement("a");
+
+            link.href="#";
+
+            link.innerHTML=id;
+
+            link.onclick=function()
+            {
+                loadNode(
+                    id,
+                    "/index.html"
+                );
+
+                return false;
+            };
+
+
+            div.appendChild(link);
+
+            div.appendChild(
+                document.createElement("br")
+            );
+
+        });
+
+    })
+
+    .catch(err =>
+    {
+        console.log("node update error:",err);
+    });
+
+}
+function loadNode(node,path)
+{
+
+    fetch(
+        "/mesh/" + node + path
+    )
+
+    .then(r => r.text())
+    .then(html =>
+    {
+
+        html = html.replaceAll(
+            'href="style.css"',
+            'href="/mesh/'+node+'/style.css"'
+        );
+
+        html = html.replaceAll(
+            'src="app.js"',
+            'src="/mesh/'+node+'/app.js"'
+        );
+
+
+        document.open();
+
+        html = html.replace(
+            "<head>",
+            "<head><base href=\"/mesh/"+node+"/\">"
+        );
+
+        document.write(html);
+        document.close();
+
+    });
+
+}
+
+
+// update immediately
+updateStatus();
+
+
+// refresh every 2 seconds
+setInterval(
+    updateStatus,
+    4000
+);
+
+
+</script>
+</body>
+</html>
