@@ -1,0 +1,173 @@
+ISSUES:
+-One warning though: do not try to queue unlimited images. Keep the queue small: if(meshRequestQueue.size() > 10) 
+
+big bug: sometimes when the other node joins, you jump to them!! wow  so when you click the node 
+stop saving files to littleFS ! stop overwriting itself etc
+
+
+gemini: Bug 3: Freeing Buffer Too Early in FILE_END
+so delete: :?? if (proxyBuffer != nullptr) {
+    free(proxyBuffer); // <-- CRITICAL BUG!
+    proxyBuffer = nullptr;
+}
+
+---- true streaming? (see gemini)
+
+Step 1: Update receivedCallback at FILE_START:
+When FILE_START arrives for binary files, immediately start an AsyncChunkedResponse:
+
+To convert your system over to streaming so the browser connection doesn't time out, we need to modify FILE_START, FILE_CHUNK, and FILE_END.
+
+Here is how you apply Step 1 to your existing FILE_START block and set up the rest of the pipeline.
+
+1. Updated FILE_START Code
+Replace your current FILE_START block with this version. Notice how as soon as a proxy request starts, we start the response right here instead of allocating the massive buffer:
+
+C++
+    // -----------------------
+    // FILE START
+    // -----------------------
+    if(msg.startsWith("FILE_START:"))
+    {
+        Serial.print("proxyTransfer=");
+        Serial.println(proxyTransfer);
+        Serial.print("Heap before image: ");
+        Serial.println(ESP.getFreeHeap());
+            
+        int p1 = msg.indexOf(':', 11);
+        int p2 = msg.indexOf(':', p1 + 1);
+
+        String filename = msg.substring(11, p1);
+        int filesize = msg.substring(p1 + 1, p2).toInt();
+        String mime = msg.substring(p2 + 1);
+
+        Serial.println("FILE:");
+        Serial.println(filename);
+        Serial.println(filesize);
+        Serial.println(mime);
+
+        // -----------------------
+        // PROXY TRANSFER
+        // -----------------------
+        if(proxyTransfer)
+        {
+            Serial.println("Proxy receiving file via chunked stream");
+
+            proxyMime = mime;
+            proxyExpected = filesize;
+            proxyLength = 0;
+
+            if(proxyMime.startsWith("image") || proxyMime.startsWith("application"))
+            {
+                // Ensure any old buffer is cleared
+                if(proxyBuffer) {
+                    free(proxyBuffer);
+                    proxyBuffer = nullptr;
+                }
+                
+                // Allocate a small 1KB sliding queue buffer instead of buffering the whole image!
+                proxyBuffer = (uint8_t*)malloc(1024);
+            }
+            else
+            {
+                // html/css/js
+                proxyData = "";
+            }
+
+            return;
+        }
+
+        // -----------------------
+        // NORMAL FILE RECEIVE
+        // -----------------------
+        incoming.name = filename;
+        incoming.size = filesize;
+        incoming.received = 0;
+
+        receivingFile = true;
+
+        String tempName;
+        tempName.reserve(80);
+        tempName = incoming.name;
+
+        if(!tempName.endsWith(".tmp")) {
+            tempName += ".tmp";
+        }
+
+        if(getFreeSpace() < incoming.size) {
+            Serial.println("Not enough storage!");
+            return;
+        }
+
+        incoming.file = LittleFS.open(tempName, "w");
+
+        Serial.println("Receiving:");
+        Serial.println(incoming.name);
+
+        return;
+    }
+
+
+ -------
+
+
+
+
+
+
+if your own node hosts the nodes...yeah its still a bit of an issue....mmm (nodelist on every page)
+
+
+
+
+
+
+One more important thing:
+
+Your new design is basically turning the ESP into a reverse proxy. That means the remote node's index.html should contain links like:
+
+<link rel="stylesheet" href="/mesh/NODE/style.css">
+<script src="/mesh/NODE/app.js"></script>
+
+The cleanest solution is actually to rewrite those paths in C++ before sending.
+
+The browser should never know it is a mesh. It should just see normal URLs.
+
+Your architecture is now correct. The remaining issue is just cleaning the old iframe/fetch logic. You are much closer than it feels. 🙂
+
+
+
+
+---- architecture:
+
+
+Browser
+   |
+   | GET /mesh/nodeB/index.html
+   |
+ESP A
+   |
+   | painlessMesh message
+   |
+ESP B
+   |
+   | FILE_START
+   | FILE_CHUNK
+   | FILE_END
+   |
+ESP A
+   |
+   | HTTP response
+   |
+Browser
+   |
+   | sees CSS reference:
+   | /mesh/nodeB/style.css
+   |
+   | GET /mesh/nodeB/style.css
+   |
+ESP A
+   |
+   | painlessMesh again
+   |
+ESP B filesystem

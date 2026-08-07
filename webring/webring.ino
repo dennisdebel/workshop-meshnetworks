@@ -1,3 +1,6 @@
+// todo: try 3 nodes, and jumping between them...
+// move css and js into the html file! (there is a bug where js is seen as binary/application and overflows buffer and breaks everything)
+
 #include "./DNSServer.h"
 #include "painlessMesh.h"
 #include <vector>
